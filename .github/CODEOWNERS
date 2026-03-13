@@ -1,0 +1,5 @@
+# Require at least one maintainer review for core app changes.
+* @YunSeok-Kang
+
+# App-specific ownership
+/submission_debugger/ @YunSeok-Kang

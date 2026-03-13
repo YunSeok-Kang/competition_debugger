@@ -214,6 +214,29 @@ cd /root/Desktop/workspace/competition_debugger/submission_debugger
 curl -sS http://127.0.0.1:18080/healthz
 ```
 
+## 팀 협업 반영 절차 (PR 머지 후)
+
+자동 배포를 아직 쓰지 않는 경우, `main` 머지 직후 서버에서 아래 1개 명령으로 동기화합니다.
+
+```bash
+cd /root/Desktop/workspace/competition_debugger/submission_debugger
+chmod +x scripts/update_from_main.sh
+./scripts/update_from_main.sh main
+```
+
+이 스크립트는 아래를 순서대로 수행합니다.
+
+- 원격 `main` 최신 커밋 fetch/pull
+- requirements 재설치
+- 앱 stop/start
+- `/healthz` 체크
+
+운영 원칙 권장:
+
+- `main` 직접 push 금지, PR 머지로만 반영
+- GitHub Branch protection에서 `main`에 PR 리뷰 필수 설정
+- 머지 후 반드시 `scripts/update_from_main.sh` 실행
+
 ## 협업 데이터 입출력
 
 ### GT 내보내기
