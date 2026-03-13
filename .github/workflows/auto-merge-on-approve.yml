@@ -1,0 +1,31 @@
+name: Auto-Merge on Approve
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  auto-merge:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Auto-merge approved PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "PR #$PR_NUMBER approved by ${{ github.event.review.user.login }}. Merging..."
+          gh pr merge "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --merge \
+            --delete-branch \
+            --subject "Auto-merge: PR #$PR_NUMBER" \
+            --body "Automatically merged after approval by @${{ github.event.review.user.login }}"
+          echo "Merge complete."
