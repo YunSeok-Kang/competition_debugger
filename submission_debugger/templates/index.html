@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submission Debugger</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --bg2: #ece3d4;
+      --ink: #1f2a2e;
+      --line: #d9cfbf;
+      --card: #fffdf9;
+      --accent: #0f766e;
+      --accent2: #115e59;
+      --muted: #5a6670;
+      --test: #0369a1;
+      --train: #7c3aed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1100px 420px at 0% -12%, #fff5dd 0%, transparent 70%),
+        radial-gradient(900px 360px at 100% -8%, #e8f7f3 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: rgba(255, 253, 249, 0.93);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 8px 22px rgba(31, 42, 46, 0.08);
+      backdrop-filter: blur(1px);
+    }
+    .header-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; }
+    .sub-grid { display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(560px, 1.2fr); gap: 12px; margin-top: 12px; }
+    .title { margin: 0; font-size: 24px; }
+    .small { color: var(--muted); font-size: 12px; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .right { margin-left: auto; }
+    input, select, button {
+      font: inherit;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 7px 9px;
+      background: #fff;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #14b8a6;
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.17);
+    }
+    button {
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(180deg, var(--accent), var(--accent2));
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+    .ghost {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 2px 8px rgba(31, 42, 46, 0.06);
+    }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 3px 8px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .tag-test { color: var(--test); border-color: #bfdbfe; background: #eff6ff; }
+    .tag-train { color: var(--train); border-color: #ddd6fe; background: #f5f3ff; }
+    .contrib-list { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 8px; max-height: 220px; overflow: auto; }
+    .contrib-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 7px 9px;
+      background: #fff;
+    }
+    .rank {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      background: #f7f2e8;
+      border: 1px solid var(--line);
+    }
+    .empty {
+      border: 1px dashed #c7bfb3;
+      border-radius: 12px;
+      padding: 14px;
+      background: #fffaf2;
+      margin-top: 10px;
+    }
+    .my-list { margin-top: 8px; max-height: 280px; overflow: auto; }
+    .my-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding: 8px 4px;
+      font-size: 13px;
+    }
+    .editor-stack {
+      display: grid;
+      gap: 6px;
+    }
+    .editor-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .editor-line input {
+      flex: 1;
+      min-width: 220px;
+    }
+    .note-line {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: pre-wrap;
+    }
+    .csv-table-wrap { margin-top: 8px; max-height: 340px; overflow: auto; }
+    .csv-table { width: 100%; border-collapse: collapse; }
+    .csv-table th, .csv-table td {
+      text-align: left;
+      border-top: 1px solid var(--line);
+      padding: 8px 6px;
+      font-size: 12px;
+      vertical-align: top;
+    }
+    .csv-table th { background: #faf6ef; position: sticky; top: 0; z-index: 1; }
+    .csv-table .action-cell {
+      white-space: nowrap;
+      min-width: 128px;
+    }
+    .csv-table .inline-editor {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .csv-table .inline-editor input {
+      min-width: 220px;
+    }
+    .csv-table .action-stack {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+    .csv-table .kaggle-editor {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .my-row:first-child { border-top: none; }
+    a.link-btn {
+      text-decoration: none;
+      color: #fff;
+      background: linear-gradient(180deg, var(--accent), var(--accent2));
+      border-radius: 9px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .action-group { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+    .action-delete { background: #be123c; }
+    .muted-link { color: var(--muted); text-decoration: none; }
+    .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+    @media (max-width: 980px) {
+      .header-grid, .sub-grid { grid-template-columns: 1fr; }
+      .my-row { grid-template-columns: 1fr; }
+      .right { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header-grid">
+    <div class="card">
+      <div class="row">
+        <h2 class="title">ACCIDENT Submission Debugger</h2>
+        <span class="pill">user: <strong>{{ user }}</strong></span>
+        <form method="post" action="/logout" class="right">
+          <button type="submit" class="ghost" style="color:#334155;">로그아웃</button>
+        </form>
+      </div>
+      <div class="small">메인 화면은 내 업로드 CSV 중심으로 구성됩니다. CSV별 비디오 목록은 열기 버튼으로 별도 페이지에서 확인합니다.</div>
+      {% if is_admin %}
+      <div class="small" style="margin-top:6px;"><a class="muted-link" href="/admin/users">관리자 페이지 이동</a></div>
+      {% endif %}
+      {% if error %}
+      <div class="small" style="color:#9f1239; margin-top:8px;">{{ error }}</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between;"><strong>GT 운영</strong></div>
+      <div class="small" style="margin-top:6px;">
+        GT 진행률(test 기준): <strong>{{ gt_stats.labeled }}</strong> / {{ gt_stats.total }}
+        ({{ '%.1f'|format(gt_stats.completion_ratio * 100) }}%)
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <a class="link-btn" href="/api/gt/export?source=test" style="background:#475569;">예상 GT CSV Export (test)</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub-grid">
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <strong>GT 기여자 TOP 3</strong>
+        <span class="small">편집 이력 기준</span>
+      </div>
+      <div class="contrib-list">
+        {% if contributors_top %}
+          {% for c in contributors_top %}
+          <div class="contrib-item">
+            <span class="rank">{{ c.rank }}</span>
+            <strong>{{ c.name }}</strong>
+            <span class="small">편집 {{ c.edits }}회</span>
+            <span class="small">영상 {{ c.videos }}개</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="small">아직 GT 편집 이력이 없습니다.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <strong>내 CSV 업로드</strong>
+        <span class="small">train/test 태그와 함께 저장</span>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input id="submission-upload-file" type="file" accept=".csv" />
+        <input id="submission-upload-name" placeholder="optional filename" style="min-width:220px;" />
+        <input id="submission-upload-note" placeholder="CSV 메모 (예: v2a late-fusion 실험)" style="min-width:280px;" />
+        <input id="submission-upload-kaggle-score" type="number" step="any" placeholder="kaggle score (test 선택 시 선택입력)" style="min-width:260px;" />
+        <select id="submission-upload-kind">
+          <option value="test">test</option>
+          <option value="train">train</option>
+        </select>
+        <button id="submission-upload-btn" type="button">업로드</button>
+      </div>
+      <div id="submission-upload-msg" class="small" style="margin-top:6px;"></div>
+      <div class="small" style="margin-top:6px;">업로드 CSV는 submission 형식과 동일한 예측값 5개 컬럼만 허용됩니다: path, accident_time, center_x, center_y, type</div>
+      <div class="small"><a class="muted-link" href="/api/submission/train-example">train CSV 예시 다운로드</a> (모든 사용자 공통)</div>
+      <div class="small">train 디버깅 시 GT는 서버(sim_dataset labels) 값을 자동 사용합니다. 업로드 CSV에 GT 컬럼을 넣지 마세요.</div>
+      <div class="small">train 업로드 시 path는 sim_dataset labels의 rgb_path와 동일해야 비교가 정확합니다.</div>
+
+      {% if empty_personal_submissions %}
+      <div class="empty" style="margin-top:10px;">
+        <strong>아직 업로드한 CSV가 없습니다.</strong>
+        <div class="small" style="margin-top:6px;">위 입력에서 CSV 파일을 업로드해 주세요.</div>
+        <div class="small">test/train을 선택하면 목록에서 태그로 구분됩니다.</div>
+      </div>
+      {% else %}
+      <div class="my-list">
+        {% for item in personal_entries %}
+        <div class="my-row" {% if item.submission == current_submission %}style="background:#f8f4eb;"{% endif %}>
+          <div>
+            <div><strong>{{ item.filename }}</strong></div>
+            <div class="small mono">{{ item.submission }}</div>
+            <div class="small">업로드 시각: {{ item.created_at or '-' }}</div>
+            <div class="note-line">메모: {{ item.note or '-' }}</div>
+            {% if item.kind == 'test' %}
+            <div class="note-line">Kaggle score: {% if item.kaggle_score is not none %}{{ '%.6f'|format(item.kaggle_score) }}{% else %}-{% endif %}</div>
+            {% endif %}
+          </div>
+          <span class="pill {% if item.kind == 'train' %}tag-train{% else %}tag-test{% endif %}">
+            {{ item.kind|upper }}
+          </span>
+          <div class="action-group">
+            <a class="link-btn" href="/submission?submission={{ item.submission|urlencode }}&source={{ item.kind }}">열기</a>
+            <a class="link-btn" href="/api/submission/download?submission={{ item.submission|urlencode }}" style="background:#334155;">다운로드</a>
+            <button type="button" class="action-delete" data-submission-delete="{{ item.submission }}">삭제</button>
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <div class="editor-stack">
+              <div class="editor-line">
+                <input id="personal-note-{{ loop.index }}" value="{{ item.note or '' }}" placeholder="이 CSV 메모" />
+                <button type="button" class="ghost" data-note-save="{{ item.submission }}" data-note-target="personal-note-{{ loop.index }}" style="color:#334155;">메모 저장</button>
+              </div>
+            {% if item.kind == 'test' %}
+              <div class="editor-line">
+                <input id="personal-kaggle-score-{{ loop.index }}" type="number" step="any" value="{% if item.kaggle_score is not none %}{{ item.kaggle_score }}{% endif %}" placeholder="Kaggle score" />
+                <button type="button" class="ghost" data-kaggle-save="{{ item.submission }}" data-kaggle-target="personal-kaggle-score-{{ loop.index }}" style="color:#334155;">Kaggle 점수 저장</button>
+              </div>
+            {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="row" style="justify-content: space-between;">
+      <strong>전체 CSV 업로드 목록 (현재 파일 기준)</strong>
+      <span class="small">삭제된 파일은 목록에 보이지 않습니다.</span>
+    </div>
+    <div class="csv-table-wrap">
+      <table class="csv-table">
+        <thead>
+          <tr>
+            <th>파일</th>
+            <th>소유자</th>
+            <th>kind</th>
+            <th>업로드 시각</th>
+            <th>메모</th>
+            <th>Kaggle</th>
+            <th>동작</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in all_csv_entries %}
+          <tr>
+            <td class="mono">{{ row.submission }}</td>
+            <td>{{ row.owner }}</td>
+            <td>
+              <span class="pill {% if row.kind == 'train' %}tag-train{% else %}tag-test{% endif %}">
+                {{ row.kind|upper }}
+              </span>
+            </td>
+            <td>{{ row.created_at or '-' }}</td>
+            <td>
+              {% if row.can_edit_note %}
+                <div class="inline-editor">
+                  <input id="global-note-{{ loop.index }}" value="{{ row.note or '' }}" placeholder="CSV 메모" />
+                  <button type="button" class="ghost" data-note-save="{{ row.submission }}" data-note-target="global-note-{{ loop.index }}" style="color:#334155;">메모 저장</button>
+                </div>
+              {% else %}
+                <span>{{ row.note or '-' }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.kind == 'test' %}
+                {% if row.can_edit_note %}
+                  <div class="kaggle-editor inline-editor">
+                    <input id="global-kaggle-score-{{ loop.index }}" type="number" step="any" value="{% if row.kaggle_score is not none %}{{ row.kaggle_score }}{% endif %}" placeholder="score" style="max-width:140px; min-width:140px;" />
+                    <button type="button" class="ghost" data-kaggle-save="{{ row.submission }}" data-kaggle-target="global-kaggle-score-{{ loop.index }}" style="color:#334155;">저장</button>
+                  </div>
+                {% else %}
+                  <span>{% if row.kaggle_score is not none %}{{ '%.6f'|format(row.kaggle_score) }}{% else %}-{% endif %}</span>
+                {% endif %}
+              {% else %}
+                <span>-</span>
+              {% endif %}
+            </td>
+            <td class="action-cell">
+              <a class="link-btn" href="/api/submission/global-download?submission={{ row.submission|urlencode }}" style="background:#334155;">다운로드</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="small" style="margin-top:8px;">CSV별 비디오 상세 디버깅은 내 업로드 목록의 열기 버튼으로 접근합니다.</div>
+  </div>
+</div>
+
+<script>
+  const uploadBtn = document.getElementById('submission-upload-btn');
+  const uploadFile = document.getElementById('submission-upload-file');
+  const uploadName = document.getElementById('submission-upload-name');
+  const uploadNote = document.getElementById('submission-upload-note');
+  const uploadKaggleScore = document.getElementById('submission-upload-kaggle-score');
+  const uploadKind = document.getElementById('submission-upload-kind');
+  const uploadMsg = document.getElementById('submission-upload-msg');
+
+  uploadBtn?.addEventListener('click', async () => {
+    if (!uploadFile.files || !uploadFile.files[0]) {
+      uploadMsg.textContent = 'CSV 파일을 선택하세요.';
+      return;
+    }
+    const form = new FormData();
+    form.append('file', uploadFile.files[0]);
+    form.append('filename', (uploadName.value || '').trim());
+    form.append('kind', (uploadKind.value || 'test'));
+    form.append('note', (uploadNote.value || '').trim());
+    form.append('kaggle_score', (uploadKaggleScore.value || '').trim());
+    if ((uploadKind.value || 'test') === 'train') {
+      const ok = window.confirm('train 업로드는 비일반 디버깅 용도입니다. CSV에 GT가 아닌 예측값만 포함했는지 확인했나요?');
+      if (!ok) {
+        uploadMsg.textContent = 'train 업로드를 취소했습니다.';
+        return;
+      }
+    }
+    uploadMsg.textContent = '업로드 중...';
+    const res = await fetch('/api/submission/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) {
+      uploadMsg.textContent = `업로드 실패: ${data.detail || 'unknown'}`;
+      return;
+    }
+    uploadMsg.textContent = `업로드 완료: ${data.submission} (${(data.kind || '').toUpperCase()})`;
+    const next = `/?submission=${encodeURIComponent(data.submission)}&source=${encodeURIComponent(data.kind || 'test')}`;
+    window.location.href = next;
+  });
+
+  document.querySelectorAll('[data-submission-delete]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const ref = btn.getAttribute('data-submission-delete') || '';
+      if (!ref) return;
+      const ok = window.confirm(`정말 삭제하시겠습니까?\n${ref}`);
+      if (!ok) return;
+      const form = new FormData();
+      form.append('submission', ref);
+      const res = await fetch('/api/submission/delete', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        uploadMsg.textContent = `삭제 실패: ${data.detail || 'unknown'}`;
+        return;
+      }
+      window.location.href = '/';
+    });
+  });
+
+  document.querySelectorAll('[data-note-save]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const submission = btn.getAttribute('data-note-save') || '';
+      const targetId = btn.getAttribute('data-note-target') || '';
+      const input = targetId ? document.getElementById(targetId) : null;
+      if (!submission || !input) return;
+      const form = new FormData();
+      form.append('submission', submission);
+      form.append('note', (input.value || '').trim());
+      const res = await fetch('/api/submission/note', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        uploadMsg.textContent = `메모 저장 실패: ${data.detail || 'unknown'}`;
+        return;
+      }
+      uploadMsg.textContent = `메모 저장 완료: ${submission}`;
+    });
+  });
+
+  document.querySelectorAll('[data-kaggle-save]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const submission = btn.getAttribute('data-kaggle-save') || '';
+      const targetId = btn.getAttribute('data-kaggle-target') || '';
+      const input = targetId ? document.getElementById(targetId) : null;
+      if (!submission || !input) return;
+      const form = new FormData();
+      form.append('submission', submission);
+      form.append('kaggle_score', (input.value || '').trim());
+      const res = await fetch('/api/submission/kaggle-score', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        uploadMsg.textContent = `Kaggle 점수 저장 실패: ${data.detail || 'unknown'}`;
+        return;
+      }
+      uploadMsg.textContent = `Kaggle 점수 저장 완료: ${submission}`;
+    });
+  });
+
+</script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Users</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --ink: #1f2a2e;
+      --line: #d7cfc4;
+      --card: #fffdf9;
+      --accent: #0f766e;
+      --danger: #9f1239;
+      --ok: #166534;
+    }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input, button, select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); }
+    button { background: var(--accent); color: white; border: none; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; border-top: 1px solid var(--line); padding: 8px 6px; font-size: 13px; vertical-align: top; }
+    .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .small { font-size: 12px; color: #475569; }
+    .ok { color: var(--ok); }
+    .err { color: var(--danger); }
+    .perm-box { max-height: 150px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div>
+        <h2 style="margin:0;">사용자/권한 관리</h2>
+        <div class="small">admin: {{ user }}</div>
+      </div>
+      <div class="row">
+        <a href="/" style="text-decoration:none;">메인으로</a>
+        <form method="post" action="/logout"><button type="submit" style="background:#475569;">로그아웃</button></form>
+      </div>
+    </div>
+    {% if msg %}<div class="ok">{{ msg }}</div>{% endif %}
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">사용자 추가</h3>
+    <form method="post" action="/admin/users/create" class="row">
+      <input name="username" placeholder="username (a-z A-Z 0-9 . _ -)" required />
+      <input name="password" type="password" placeholder="password" required />
+      <button type="submit">생성</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">비밀번호 변경</h3>
+    <form method="post" action="/admin/users/password" class="row">
+      <select name="username" required>
+        {% for u in users %}
+          <option value="{{ u.username }}">{{ u.username }}</option>
+        {% endfor %}
+      </select>
+      <input name="new_password" type="password" placeholder="new password" required />
+      <button type="submit">변경</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">사용자별 Submission 권한</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>username</th>
+          <th>created</th>
+          <th>default</th>
+          <th>permissions</th>
+          <th>save</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="mono">{{ u.username }}{% if u.is_admin %} (admin){% endif %}</td>
+          <td>{{ u.created_at }}</td>
+          <td class="small">sub={{ u.default_submission or '-' }}, source={{ u.default_source }}</td>
+          <td>
+            {% if u.is_admin %}
+              <span class="small">all submissions</span>
+            {% else %}
+              <form method="post" action="/admin/users/permissions">
+                <input type="hidden" name="username" value="{{ u.username }}" />
+                <div class="perm-box">
+                  {% for s in submissions %}
+                    <label style="display:block;">
+                      <input type="checkbox" name="submission_names" value="{{ s }}" {% if s in u.allowed_submissions %}checked{% endif %} />
+                      {{ s }}
+                    </label>
+                  {% endfor %}
+                </div>
+                <button type="submit" style="margin-top:8px;">권한 저장</button>
+              </form>
+            {% endif %}
+          </td>
+          <td class="small">{% if not u.is_admin %}수정 가능{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>

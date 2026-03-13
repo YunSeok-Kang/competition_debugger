@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submission Videos</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --bg2: #ece3d4;
+      --ink: #1f2a2e;
+      --line: #d9cfbf;
+      --card: #fffdf9;
+      --accent: #0f766e;
+      --accent2: #115e59;
+      --muted: #5a6670;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1100px 420px at 0% -12%, #fff5dd 0%, transparent 70%),
+        radial-gradient(900px 360px at 100% -8%, #e8f7f3 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: rgba(255, 253, 249, 0.93);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 8px 22px rgba(31, 42, 46, 0.08);
+    }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .toolbar { margin-top: 8px; margin-bottom: 8px; }
+    .small { color: var(--muted); font-size: 12px; }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 3px 8px;
+      font-size: 12px;
+      background: #fff;
+    }
+    input, select, button {
+      font: inherit;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 7px 9px;
+      background: #fff;
+    }
+    button {
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(180deg, var(--accent), var(--accent2));
+    }
+    a.link-btn {
+      text-decoration: none;
+      color: #fff;
+      background: linear-gradient(180deg, var(--accent), var(--accent2));
+      border-radius: 9px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .ghost {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 2px 8px rgba(31, 42, 46, 0.06);
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; font-size: 13px; vertical-align: top; }
+    th { background: #faf6ef; position: sticky; top: 0; z-index: 1; }
+    .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ok { color: #116530; }
+    .warn { color: #9f1239; }
+    .tag-chip {
+      display: inline-block;
+      margin-right: 4px;
+      margin-bottom: 4px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 2px 7px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card" style="margin-bottom:12px;">
+    <div class="row" style="justify-content: space-between;">
+      <div>
+        <a href="/" class="small">← 메인으로</a>
+        <h3 style="margin:6px 0 0 0;">비디오 목록</h3>
+      </div>
+      <span class="small mono">user={{ user }} / submission={{ submission }}</span>
+    </div>
+    {% if source == 'train' %}
+    <div class="small" style="margin-top:8px; color:#6d28d9;">
+      TRAIN 디버깅 모드: GT는 서버의 sim_dataset 라벨을 사용합니다. 업로드 CSV는 모델 예측값(path, accident_time, center_x, center_y, type)만 포함해야 합니다.
+    </div>
+    {% else %}
+    <div class="small" style="margin-top:8px; color:#075985;">
+      TEST 디버깅 모드: 업로드 CSV 예측값과 예상 GT를 비교합니다.
+    </div>
+    {% endif %}
+
+    <form method="get" action="/submission" class="row toolbar">
+      <input type="hidden" name="submission" value="{{ submission }}" />
+      <input type="hidden" name="source" value="{{ source }}" />
+      <span class="pill">source: {{ source|upper }} (고정)</span>
+      <label class="small">Search</label>
+      <input id="q" name="q" value="{{ q }}" placeholder="video path" />
+      <label class="small">Quality</label>
+      <select id="quality" name="quality">
+        <option value="all" {% if quality == 'all' %}selected{% endif %}>all</option>
+        {% for qv in quality_values %}
+          <option value="{{ qv }}" {% if quality == qv %}selected{% endif %}>{{ qv }}</option>
+        {% endfor %}
+      </select>
+      <label class="small">Tag</label>
+      <select id="tag" name="tag">
+        <option value="all" {% if tag == 'all' %}selected{% endif %}>all</option>
+        {% for tv in all_tags %}
+          <option value="{{ tv }}" {% if tag == tv %}selected{% endif %}>{{ tv }}</option>
+        {% endfor %}
+      </select>
+      <label class="small"><input type="checkbox" name="only_labeled" value="true" {% if only_labeled %}checked{% endif %} /> only labeled</label>
+      <button type="submit" class="ghost">필터 적용</button>
+    </form>
+
+    <div class="card" style="margin-top:8px; background:#fff;">
+      <div class="row" style="justify-content: space-between; margin-bottom:6px;">
+        <div><strong>Kaggle 점수 / 로컬 예측 점수</strong></div>
+      </div>
+      {% if source == 'test' %}
+      <div class="row" style="align-items:flex-end;">
+        <label class="small">Kaggle 제출 점수
+          <input id="kaggle-score-input" type="number" step="any" value="{% if kaggle_score is not none %}{{ kaggle_score }}{% endif %}" placeholder="optional" />
+        </label>
+        <button id="save-kaggle-score" type="button" class="ghost">Kaggle 점수 저장</button>
+        <span id="kaggle-score-msg" class="small"></span>
+      </div>
+      {% else %}
+      <div class="small">train submission에는 Kaggle 점수를 저장하지 않습니다.</div>
+      {% endif %}
+
+      <div class="row" style="margin-top:8px;">
+        <span class="pill">로컬 예측 점수(H): {% if estimated_score is not none %}{{ '%.6f'|format(estimated_score) }}{% else %}-{% endif %}</span>
+        <span class="small">계산 샘플 수: {{ estimated_used }} / 완성 Expected GT: {{ expected_complete_count }}</span>
+      </div>
+      <div class="small" style="margin-top:4px; color:#075985;">Expected GT가 없는 셀은 계산에서 제외됩니다. 스코어 정밀도를 높이려면 Expected GT를 더 많이 완성해 주세요.</div>
+    </div>
+
+    <div class="card" style="margin-top:8px; background:#fff;">
+      <div class="row" style="justify-content: space-between;">
+        <strong>Submission 코멘트 (모델 관점)</strong>
+        <span class="small">목록에서는 모아보기만 제공, 작성은 비디오 열기 화면에서</span>
+      </div>
+      <details style="margin-top:8px;">
+        <summary class="small">submission 코멘트 모아보기 ({{ submission_comment_rows|length }}개)</summary>
+        <div style="max-height:180px; overflow:auto; margin-top:6px;">
+          <table style="width:100%; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th>scope</th>
+                <th>video</th>
+                <th>user</th>
+                <th>comment</th>
+                <th>updated</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for c in submission_comment_rows %}
+              <tr>
+                <td>{{ c.scope }}</td>
+                <td class="mono">{{ c.video_path or '-' }}</td>
+                <td>{{ c.username }}</td>
+                <td>{{ c.comment }}</td>
+                <td class="small">{{ c.updated_at }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="card" style="overflow:auto; max-height:75vh;">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>video_path</th>
+          <th>duration</th>
+          <th>quality</th>
+          <th>Pred</th>
+          <th>Expected GT</th>
+          <th>Dataset 태그/노트 요약</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ r.path }}</td>
+          <td>{{ '%.2f'|format(r.duration or 0.0) }}s</td>
+          <td><span class="pill">{{ r.quality }}</span></td>
+          <td>
+            {% if r.pred %}
+              t={{ '%.2f'|format(r.pred.accident_time or 0.0) }},
+              xy=({{ '%.3f'|format(r.pred.center_x or 0.0) }},{{ '%.3f'|format(r.pred.center_y or 0.0) }}),
+              type={{ r.pred.type }}
+            {% else %}
+              <span class="warn">missing</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.gt %}
+              <span class="ok">
+                t={{ '%.2f'|format(r.gt.accident_time or 0.0) }},
+                xy=({{ '%.3f'|format(r.gt.center_x or 0.0) }},{{ '%.3f'|format(r.gt.center_y or 0.0) }}),
+                type={{ r.gt.type }}
+              </span>
+            {% else %}
+              <span class="small">not set</span>
+            {% endif %}
+          </td>
+          <td>
+            <div>
+              {% if r.dataset_tags %}
+                {% for tg in r.dataset_tags %}
+                  <span class="tag-chip">{{ tg }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="small">태그 없음</span>
+              {% endif %}
+            </div>
+            <div class="small" style="margin-top:4px;">노트 {{ r.dataset_note_count }}개{% if r.dataset_latest_user %} / latest: {{ r.dataset_latest_user }}{% endif %}</div>
+            {% if r.dataset_latest_comment %}
+              <div class="small" style="margin-top:4px;">{{ r.dataset_latest_comment }}</div>
+            {% endif %}
+          </td>
+          <td><a class="link-btn" href="/video?source={{ source }}&submission={{ submission }}&video_path={{ r.path|urlencode }}">열기</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const sourceRef = {{ source|tojson }};
+    const submissionRef = {{ submission|tojson }};
+    const saveBtn = document.getElementById('save-kaggle-score');
+    const scoreInput = document.getElementById('kaggle-score-input');
+    const msg = document.getElementById('kaggle-score-msg');
+
+    if (!saveBtn || !scoreInput || sourceRef !== 'test') return;
+
+    saveBtn.addEventListener('click', async () => {
+      const form = new FormData();
+      form.append('submission', submissionRef);
+      form.append('kaggle_score', (scoreInput.value || '').trim());
+      msg.textContent = '저장 중...';
+      try {
+        const res = await fetch('/api/submission/kaggle-score', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'unknown');
+        msg.textContent = '저장 완료';
+      } catch (e) {
+        msg.textContent = `저장 실패: ${e.message}`;
+      }
+    });
+  })();
+</script>
+
+</body>
+</html>

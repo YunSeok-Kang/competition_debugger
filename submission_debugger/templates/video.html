@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video Debugger</title>
+  <style>
+    :root {
+      --bg: #f3eee4;
+      --bg-2: #ece3d4;
+      --ink: #1f2a2e;
+      --line: #d9cfbf;
+      --card: #fffdf9;
+      --accent: #0f766e;
+      --accent-2: #115e59;
+      --pred: #b91c1c;
+      --gt: #15803d;
+      --muted: #5a6670;
+    }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+      background:
+        radial-gradient(1200px 420px at 8% -10%, #fff6df 0%, transparent 65%),
+        radial-gradient(900px 360px at 95% 0%, #e7f6f3 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 16px; }
+    .grid { display: grid; grid-template-columns: 2.2fr 1fr; gap: 14px; }
+    .card {
+      background: rgba(255, 253, 249, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 8px 24px rgba(31, 42, 46, 0.08);
+      backdrop-filter: blur(2px);
+    }
+    #gt-panel { position: sticky; top: 12px; align-self: start; }
+    .video-wrap { position: relative; width: 100%; background: black; border-radius: 10px; overflow: hidden; }
+    video { width: 100%; max-height: 72vh; display: block; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+    input, select, button, textarea { font: inherit; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line); }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #14b8a6;
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18);
+      background: #fff;
+    }
+    button {
+      cursor: pointer;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      color: white;
+      border: none;
+      font-weight: 600;
+      transition: transform 0.12s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.28);
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+    .ghost {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      box-shadow: 0 2px 8px rgba(31, 42, 46, 0.07);
+      font-weight: 500;
+    }
+    .badge { padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); font-size: 12px; }
+    .history { max-height: 360px; overflow: auto; font-size: 12px; }
+    .pred { color: var(--pred); }
+    .gt { color: var(--gt); }
+    .small { font-size: 12px; color: var(--muted); }
+    .panel-disabled { opacity: 0.55; }
+    .time-chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); background: #f7f4ee; }
+    .tag-chip {
+      display: inline-block;
+      margin-right: 4px;
+      margin-bottom: 4px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 2px 7px;
+      font-size: 11px;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      #gt-panel { position: static; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row" style="justify-content: space-between;">
+    <div>
+      <a href="/submission?submission={{ submission|urlencode }}&source={{ source }}">← 목록으로</a>
+      <h3 style="margin:8px 0 0 0;">{{ video_path }}</h3>
+    </div>
+    <div class="badge">source: {{ source }} / A: {{ submission }}{% if compare_submission %} / B: {{ compare_submission }}{% endif %}{% if compare_submission2 %} / C: {{ compare_submission2 }}{% endif %}</div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="video-wrap" id="video-wrap">
+        <video id="video" controls preload="metadata" src="/media?source={{ source }}&video_path={{ video_path|urlencode }}"></video>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button id="seek-pred" class="ghost" type="button">Pred 시점으로 이동</button>
+        <button id="seek-pred-b" class="ghost" type="button">Pred-B 시점</button>
+        <button id="seek-pred-c" class="ghost" type="button">Pred-C 시점</button>
+        <button id="seek-gt" class="ghost" type="button">GT 시점으로 이동</button>
+        <label><input id="show-a" type="checkbox" checked /> A</label>
+        <label><input id="show-b" type="checkbox" checked /> B</label>
+        <label><input id="show-c" type="checkbox" checked /> C</label>
+        <label><input id="show-gt" type="checkbox" checked /> GT</label>
+        <span class="small" id="cursor-pos">오버레이 보기 모드</span>
+      </div>
+      <div class="row" style="margin-top:4px; gap:6px;">
+        <div class="small" id="video-status" style="flex:1;"></div>
+        <a id="open-video-direct" class="small" target="_blank" rel="noopener noreferrer">직접 열기</a>
+      </div>
+    </div>
+
+    <div class="card" id="gt-panel">
+      <div class="row" style="justify-content: space-between;">
+        <strong id="gt-panel-title">Expected GT (읽기 전용)</strong>
+        <div class="row" style="margin-bottom:0;">
+          <input id="edit-mode" type="checkbox" style="display:none;" />
+          <button id="toggle-edit-mode" class="ghost" type="button">편집 모드: OFF</button>
+        </div>
+      </div>
+      <div class="small" id="edit-mode-status">재생/탐색 모드</div>
+      {% if not can_edit_gt %}
+      <div class="small" style="color:#b45309;">train source는 sim_dataset 라벨을 읽기 전용으로 표시합니다. GT 저장은 test source에서만 가능합니다.</div>
+      {% endif %}
+      <fieldset id="gt-edit-fields" style="border:none; padding:0; margin:0;">
+      <div class="row">
+        <label>편집자
+          <input id="editor" type="text" placeholder="name" {% if not can_edit_gt %}disabled{% endif %} />
+        </label>
+        <label>accident_time
+          <input id="gt_time" type="number" step="0.01" min="0" {% if not can_edit_gt %}disabled{% endif %} />
+        </label>
+      </div>
+      <div class="row">
+        <label>center_x
+          <input id="gt_cx" type="number" step="0.0001" min="0" max="1" {% if not can_edit_gt %}disabled{% endif %} />
+        </label>
+        <label>center_y
+          <input id="gt_cy" type="number" step="0.0001" min="0" max="1" {% if not can_edit_gt %}disabled{% endif %} />
+        </label>
+      </div>
+      <div class="row">
+        <label>type
+          <select id="gt_type" {% if not can_edit_gt %}disabled{% endif %}>
+            <option value="">(none)</option>
+            <option>head-on</option>
+            <option>rear-end</option>
+            <option>sideswipe</option>
+            <option>single</option>
+            <option>t-bone</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label style="width:100%;">note
+          <textarea id="gt_note" rows="3" style="width:100%;" {% if not can_edit_gt %}disabled{% endif %}></textarea>
+        </label>
+      </div>
+      <div class="row" style="justify-content: space-between;">
+        <span class="time-chip" id="playback-time-display">현재 재생시간: 0.00s</span>
+        <button id="sync-time-from-video" type="button" class="ghost" {% if not can_edit_gt %}disabled{% endif %}>현재 재생시간을 accident_time에 적용</button>
+      </div>
+      <div class="row">
+        <button id="copy-pred" type="button" class="ghost" {% if not can_edit_gt %}disabled{% endif %}>Pred 값 복사</button>
+        <button id="save-gt" type="button" {% if not can_edit_gt %}disabled{% endif %}>저장</button>
+      </div>
+      <div class="small" id="save-msg"></div>
+      <div class="small">편집 이력은 저장 후 자동으로 갱신됩니다.</div>
+      <div class="small" id="save-state"></div>
+      </fieldset>
+
+      <hr />
+      <div><strong>현재 값</strong></div>
+      <div class="small pred" id="pred-text" style="white-space: pre-line;"></div>
+      <div class="small gt" id="gt-text"></div>
+      <div class="small" id="meta-text"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <strong>편집 이력</strong>
+    <div class="history">
+      <table style="width:100%; border-collapse: collapse; margin-top:8px;">
+        <thead>
+          <tr><th style="text-align:left;">time</th><th style="text-align:left;">editor</th><th style="text-align:left;">after</th></tr>
+        </thead>
+        <tbody id="history-body">
+          {% for h in history %}
+            <tr>
+              <td style="vertical-align:top; border-top:1px solid #ddd; padding:6px;">{{ h.edited_at }}</td>
+              <td style="vertical-align:top; border-top:1px solid #ddd; padding:6px;">{{ h.edited_by }}</td>
+              <td style="vertical-align:top; border-top:1px solid #ddd; padding:6px; white-space:pre-wrap;">{{ h.after_json }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <div class="row" style="justify-content: space-between;">
+      <strong>코멘트 / 태그</strong>
+      <span class="small">코멘트 작성은 이 재생 화면에서 수행</span>
+    </div>
+    <div class="small" style="margin-top:6px;">모델 코멘트는 submission 기준으로 관리되고, 데이터셋 노트/태그는 모든 사용자와 공유됩니다.</div>
+
+    <div style="margin-top:10px; border-top:1px solid #e5ddcf; padding-top:10px;">
+      <div><strong>모델 코멘트 (내 기준)</strong></div>
+      <div class="small" style="margin-top:4px;">submission 전체 코멘트</div>
+      <div class="row" style="align-items:flex-start;">
+        <textarea id="model-submission-comment" rows="2" style="width:100%;">{{ my_submission_comment }}</textarea>
+        <button id="save-model-submission-comment" type="button">저장</button>
+      </div>
+      <div class="small" style="margin-top:4px;">현재 비디오 코멘트</div>
+      <div class="row" style="align-items:flex-start;">
+        <textarea id="model-video-comment" rows="2" style="width:100%;">{{ my_video_comment }}</textarea>
+        <button id="save-model-video-comment" type="button">저장</button>
+      </div>
+      <div id="model-comment-msg" class="small"></div>
+
+      <details style="margin-top:8px;">
+        <summary class="small">이 비디오의 모델 코멘트 모아보기 ({{ model_video_comments|length }}개)</summary>
+        <div style="max-height:180px; overflow:auto; margin-top:6px;">
+          <table style="width:100%; border-collapse: collapse;">
+            <thead><tr><th>user</th><th>comment</th><th>updated</th></tr></thead>
+            <tbody>
+            {% for c in model_video_comments %}
+              <tr>
+                <td>{{ c.username }}</td>
+                <td>{{ c.comment }}</td>
+                <td class="small">{{ c.updated_at }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div style="margin-top:10px; border-top:1px solid #e5ddcf; padding-top:10px;">
+      <div><strong>데이터셋 코멘트 / 태그 (공유)</strong></div>
+      <div class="small" style="margin-top:4px;">태그는 모든 사용자에게 공유되며, 삭제 시 전체 사용자 화면에서 즉시 제거됩니다.</div>
+
+      <div style="margin-top:8px;">
+        <strong class="small">공유 태그</strong>
+        <div style="margin-top:6px;">
+          {% if dataset_tags %}
+            {% for t in dataset_tags %}
+              <span class="tag-chip">{{ t }} <button type="button" class="ghost dataset-tag-remove" data-tag="{{ t }}" style="padding:1px 6px; margin-left:4px;">x</button></span>
+            {% endfor %}
+          {% else %}
+            <span class="small">현재 태그 없음</span>
+          {% endif %}
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <input id="dataset-new-tag" style="min-width:260px;" placeholder="태그 추가 (예: night, rain)" />
+          <button id="add-dataset-tag" type="button">태그 추가</button>
+        </div>
+      </div>
+
+      <div style="margin-top:10px; border-top:1px solid #e5ddcf; padding-top:10px;">
+        <strong class="small">공유 코멘트</strong>
+        <div class="row" style="align-items:flex-start; margin-top:6px;">
+          <textarea id="dataset-note-comment" rows="2" style="width:100%;" placeholder="데이터셋 특성 코멘트"></textarea>
+          <button id="save-dataset-note" type="button">코멘트 저장</button>
+        </div>
+      </div>
+
+      <div id="dataset-note-msg" class="small"></div>
+      <details style="margin-top:8px;" open>
+        <summary class="small">공유 코멘트 목록 ({{ dataset_notes|length }}개)</summary>
+        <div style="max-height:220px; overflow:auto; margin-top:6px;">
+          <table style="width:100%; border-collapse: collapse;">
+            <thead><tr><th>user</th><th>comment</th><th>created</th></tr></thead>
+            <tbody>
+            {% for n in dataset_notes %}
+              <tr>
+                <td>{{ n.username }}</td>
+                <td>{{ n.comment }}</td>
+                <td class="small">{{ n.created_at }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script id="payload" type="application/json">{{ payload | tojson }}</script>
+<script src="/static/video.js?v={{ asset_version }}"></script>
+<script>
+  const modelCommentMsg = document.getElementById('model-comment-msg');
+  const datasetNoteMsg = document.getElementById('dataset-note-msg');
+  const submissionRef = {{ submission|tojson }};
+  const videoPathRef = {{ video_path|tojson }};
+  const sourceRef = {{ source|tojson }};
+
+  async function postForm(url, payload) {
+    const form = new FormData();
+    Object.entries(payload).forEach(([k, v]) => form.append(k, v));
+    const res = await fetch(url, { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'request failed');
+    return data;
+  }
+
+  document.getElementById('save-model-submission-comment')?.addEventListener('click', async () => {
+    const comment = (document.getElementById('model-submission-comment')?.value || '').trim();
+    if (!comment) {
+      modelCommentMsg.textContent = 'submission 코멘트를 입력하세요.';
+      return;
+    }
+    modelCommentMsg.textContent = '저장 중...';
+    try {
+      await postForm('/api/submission/comment', { submission: submissionRef, comment });
+      modelCommentMsg.textContent = 'submission 코멘트 저장 완료';
+      window.setTimeout(() => window.location.reload(), 250);
+    } catch (e) {
+      modelCommentMsg.textContent = `저장 실패: ${e.message}`;
+    }
+  });
+
+  document.getElementById('save-model-video-comment')?.addEventListener('click', async () => {
+    const comment = (document.getElementById('model-video-comment')?.value || '').trim();
+    if (!comment) {
+      modelCommentMsg.textContent = '비디오 코멘트를 입력하세요.';
+      return;
+    }
+    modelCommentMsg.textContent = '저장 중...';
+    try {
+      await postForm('/api/submission/video-comment', {
+        submission: submissionRef,
+        video_path: videoPathRef,
+        comment,
+      });
+      modelCommentMsg.textContent = '비디오 코멘트 저장 완료';
+      window.setTimeout(() => window.location.reload(), 250);
+    } catch (e) {
+      modelCommentMsg.textContent = `저장 실패: ${e.message}`;
+    }
+  });
+
+  document.getElementById('save-dataset-note')?.addEventListener('click', async () => {
+    const comment = (document.getElementById('dataset-note-comment')?.value || '').trim();
+    if (!comment) {
+      datasetNoteMsg.textContent = '데이터셋 노트를 입력하세요.';
+      return;
+    }
+    datasetNoteMsg.textContent = '저장 중...';
+    try {
+      await postForm('/api/dataset/video-note', {
+        source: sourceRef,
+        video_path: videoPathRef,
+        comment,
+      });
+      datasetNoteMsg.textContent = '공유 코멘트 저장 완료';
+      window.setTimeout(() => window.location.reload(), 250);
+    } catch (e) {
+      datasetNoteMsg.textContent = `저장 실패: ${e.message}`;
+    }
+  });
+
+  document.getElementById('add-dataset-tag')?.addEventListener('click', async () => {
+    const tag = (document.getElementById('dataset-new-tag')?.value || '').trim();
+    if (!tag) {
+      datasetNoteMsg.textContent = '추가할 태그를 입력하세요.';
+      return;
+    }
+    datasetNoteMsg.textContent = '태그 추가 중...';
+    try {
+      await postForm('/api/dataset/video-tag/add', {
+        source: sourceRef,
+        video_path: videoPathRef,
+        tag,
+      });
+      datasetNoteMsg.textContent = '태그 추가 완료';
+      window.setTimeout(() => window.location.reload(), 250);
+    } catch (e) {
+      datasetNoteMsg.textContent = `태그 추가 실패: ${e.message}`;
+    }
+  });
+
+  document.querySelectorAll('.dataset-tag-remove').forEach((btn) => {
+    btn.addEventListener('click', async (ev) => {
+      const tag = (ev.currentTarget?.dataset?.tag || '').trim();
+      if (!tag) return;
+      const ok = window.confirm(`'${tag}' 태그를 삭제하면 모든 사용자 화면에서 즉시 사라집니다. 계속할까요?`);
+      if (!ok) return;
+      datasetNoteMsg.textContent = '태그 삭제 중...';
+      try {
+        await postForm('/api/dataset/video-tag/delete', {
+          source: sourceRef,
+          video_path: videoPathRef,
+          tag,
+        });
+        datasetNoteMsg.textContent = '태그 삭제 완료';
+        window.setTimeout(() => window.location.reload(), 250);
+      } catch (e) {
+        datasetNoteMsg.textContent = `태그 삭제 실패: ${e.message}`;
+      }
+    });
+  });
+</script>
+</body>
+</html>

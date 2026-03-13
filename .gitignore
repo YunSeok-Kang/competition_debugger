@@ -1,0 +1,38 @@
+# Python cache and venv
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Runtime logs and pid files
+*.log
+*.pid
+nohup.out
+
+# Large experiment/output artifacts
+wandb/
+outputs/
+visualization_output/
+
+# Local datasets and generated media
+dataset/
+
+# Local submission artifacts
+submission_*.csv
+
+# Submission debugger runtime data (DB, logs, uploads)
+submission_debugger/data/debugger.db
+submission_debugger/data/server.log
+submission_debugger/data/server.pid
+submission_debugger/data/user_submissions/
+
+# Optional: ignore local notebooks checkpoints
+.ipynb_checkpoints/
