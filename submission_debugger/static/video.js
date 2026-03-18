@@ -35,6 +35,9 @@
   const playbackTimeDisplayEl = document.getElementById("playback-time-display");
   const playbackRateButtons = Array.from(document.querySelectorAll("[data-playback-rate]"));
   const playbackRateStatusEl = document.getElementById("playback-rate-status");
+  const seekOffsetInputEl = document.getElementById("seek-offset-seconds");
+  const seekOffsetPresetButtons = Array.from(document.querySelectorAll("[data-seek-offset]"));
+  const seekOffsetStatusEl = document.getElementById("seek-offset-status");
   const setTimeFromVideoBtn = document.getElementById("sync-time-from-video");
   const videoStatusEl = document.getElementById("video-status");
   const openVideoDirectEl = document.getElementById("open-video-direct");
@@ -60,6 +63,9 @@
   const ZOOM_PADDING_FACTOR = 1.15;
   const MAX_ZOOM_SCALE = 6;
   const PLAYBACK_RATE_STORAGE_KEY = "video_playback_rate";
+  const SEEK_OFFSET_STORAGE_KEY_PREFIX = "video_seek_offset_seconds";
+  const DEFAULT_SEEK_OFFSET_SECONDS = 0.5;
+  let seekOffsetSeconds = DEFAULT_SEEK_OFFSET_SECONDS;
 
   function num(v, fallback = null) {
     const x = Number(v);
@@ -77,6 +83,62 @@
 
   function formatPlaybackRate(rate) {
     return `${Number(rate).toFixed(2).replace(/\.?0+$/, "")}x`;
+  }
+
+  function formatSeekOffsetSeconds(seconds) {
+    return `${Number(seconds).toFixed(2).replace(/\.?0+$/, "")}`;
+  }
+
+  function getSeekOffsetStorageKey() {
+    const userRaw = String(payload.user || "anonymous").trim().toLowerCase();
+    const userKey = userRaw || "anonymous";
+    return `${SEEK_OFFSET_STORAGE_KEY_PREFIX}:${userKey}`;
+  }
+
+  function syncSeekOffsetUI(seconds) {
+    const normalized = String(seconds);
+    seekOffsetPresetButtons.forEach((button) => {
+      const active = button.dataset.seekOffset === normalized;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    if (seekOffsetInputEl) {
+      seekOffsetInputEl.value = formatSeekOffsetSeconds(seconds);
+    }
+    if (seekOffsetStatusEl) {
+      seekOffsetStatusEl.textContent = `현재 ${Number(seconds).toFixed(2)}초 전`;
+    }
+  }
+
+  function applySeekOffset(nextSeconds, { persist = true } = {}) {
+    const seconds = clamp(num(nextSeconds, DEFAULT_SEEK_OFFSET_SECONDS), 0, 10);
+    seekOffsetSeconds = seconds;
+    syncSeekOffsetUI(seconds);
+    if (persist) {
+      localStorage.setItem(getSeekOffsetStorageKey(), String(seconds));
+    }
+    buildEventMarkers();
+  }
+
+  function loadSavedSeekOffset() {
+    const saved = localStorage.getItem(getSeekOffsetStorageKey());
+    if (!saved) {
+      applySeekOffset(DEFAULT_SEEK_OFFSET_SECONDS, { persist: false });
+      return;
+    }
+    applySeekOffset(saved, { persist: false });
+  }
+
+  function resolveSeekTarget(baseTime, duration) {
+    const t = num(baseTime, null);
+    if (t == null) {
+      return null;
+    }
+    const next = t - seekOffsetSeconds;
+    if (duration == null || !Number.isFinite(duration)) {
+      return Math.max(0, next);
+    }
+    return clamp(next, 0, duration);
   }
 
   function syncPlaybackRateUI(rate) {
@@ -169,14 +231,19 @@
 
     validMarkers.forEach((m) => {
       const ratio = clamp((m.t || 0) / duration, 0, 1);
+      const targetTime = resolveSeekTarget(m.t, duration);
       const marker = document.createElement("button");
       marker.type = "button";
       marker.className = `event-marker-item ${m.cssClass}`;
       marker.style.left = `${(ratio * 100).toFixed(2)}%`;
-      marker.innerHTML = `<span class="event-marker-stick"></span><span class="event-marker-label">${m.label} ${Number(m.t).toFixed(2)}s</span>`;
-      marker.title = `${m.label} 시점으로 이동 (${Number(m.t).toFixed(2)}s)`;
+      marker.innerHTML = `<span class="event-marker-stick"></span><span class="event-marker-label">${m.label} ${Number(targetTime ?? m.t).toFixed(2)}s</span>`;
+      marker.title = `${m.label} 시점 ${Number(m.t).toFixed(2)}s에서 ${Number(seekOffsetSeconds).toFixed(2)}초 전으로 이동`;
       marker.addEventListener("click", () => {
-        video.currentTime = Math.max(0, Math.min(duration, Number(m.t)));
+        const next = resolveSeekTarget(m.t, duration);
+        if (next == null) {
+          return;
+        }
+        video.currentTime = next;
       });
       eventMarkerRailEl.appendChild(marker);
     });
@@ -826,6 +893,16 @@
     });
   });
 
+  seekOffsetPresetButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      applySeekOffset(button.dataset.seekOffset || DEFAULT_SEEK_OFFSET_SECONDS);
+    });
+  });
+
+  seekOffsetInputEl?.addEventListener("input", () => {
+    applySeekOffset(seekOffsetInputEl.value || DEFAULT_SEEK_OFFSET_SECONDS);
+  });
+
   setTimeFromVideoBtn?.addEventListener("click", () => {
     tEl.value = (video.currentTime || 0).toFixed(2);
     syncDraftFromForm();
@@ -858,7 +935,7 @@
 
   video.addEventListener("loadeddata", () => {
     applyPlaybackRate(localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY) || "1", { persist: false });
-    showVideoSuccess("비디오 로드 완료");
+    showVideoStatus("");
     buildEventMarkers();
     if (loadTimeoutId) {
       clearTimeout(loadTimeoutId);
@@ -880,14 +957,22 @@
 
   document.getElementById("seek-pred").addEventListener("click", () => {
     if (pred.accident_time != null) {
-      video.currentTime = Math.max(0, Number(pred.accident_time));
+      const duration = Number.isFinite(video.duration) ? video.duration : null;
+      const next = resolveSeekTarget(pred.accident_time, duration);
+      if (next != null) {
+        video.currentTime = next;
+      }
     }
   });
 
   document.getElementById("seek-gt").addEventListener("click", () => {
     const renderGt = getRenderGt();
     if (renderGt.accident_time != null) {
-      video.currentTime = Math.max(0, Number(renderGt.accident_time));
+      const duration = Number.isFinite(video.duration) ? video.duration : null;
+      const next = resolveSeekTarget(renderGt.accident_time, duration);
+      if (next != null) {
+        video.currentTime = next;
+      }
     }
   });
 
@@ -975,6 +1060,7 @@
   syncFormFromGt();
   syncDraftFromForm();
   loadSavedPlaybackRate();
+  loadSavedSeekOffset();
   if (editModeEl) {
     editModeEl.checked = false;
   }
