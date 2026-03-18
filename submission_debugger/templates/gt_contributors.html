@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GT 전체 기여자 목록</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --btn: #334155;
+      --btn-hover: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .small { color: var(--muted); font-size: 13px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 36px;
+      padding: 0 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #334155;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .btn.primary {
+      background: var(--btn);
+      border-color: var(--btn);
+      color: #fff;
+    }
+    .btn.primary:hover { background: var(--btn-hover); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      table-layout: fixed;
+    }
+    th, td {
+      border-top: 1px solid var(--line);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+    }
+    th { color: #475569; font-weight: 700; }
+    td.num { width: 90px; text-align: right; }
+    td.rank { width: 70px; text-align: center; font-weight: 700; }
+    .empty {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px dashed var(--line);
+      color: var(--muted);
+      background: #fcfdff;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <div>
+          <h2 style="margin:0;">GT 전체 기여자 목록</h2>
+          <div class="small">편집 이력(gt_history) 기준 집계</div>
+        </div>
+        <div class="row" style="justify-content:flex-end;">
+          <span class="small">user: <strong>{{ user }}</strong></span>
+          <a class="btn primary" href="/">대시보드로 돌아가기</a>
+        </div>
+      </div>
+
+      {% if contributors %}
+      <table>
+        <thead>
+          <tr>
+            <th style="width:70px;">순위</th>
+            <th>기여자</th>
+            <th style="width:120px;">편집 횟수</th>
+            <th style="width:120px;">기여 영상 수</th>
+            <th style="width:220px;">마지막 편집 시각</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in contributors %}
+          <tr>
+            <td class="rank">{{ c.rank }}</td>
+            <td><strong>{{ c.name }}</strong></td>
+            <td class="num">{{ c.edits }}</td>
+            <td class="num">{{ c.videos }}</td>
+            <td>{{ c.last_at or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">아직 GT 편집 이력이 없습니다.</div>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

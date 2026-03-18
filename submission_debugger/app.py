@@ -67,6 +67,20 @@ TEST_DATASET_TAG_OPTIONS = [
     {"value": "time_ambiguous", "label": "시간 애매함"},
 ]
 DATASET_TAG_LABELS = {item["value"]: item["label"] for item in TEST_DATASET_TAG_OPTIONS}
+SUBMISSION_SORT_KEY_LABELS = {
+    "duration": "Duration",
+    "quality": "Quality",
+    "weather": "Weather",
+    "day_time": "Day Time",
+    "scene_layout": "Scene",
+    "error_abs_total": "Error(절대 합계)",
+    "error_norm_total": "Error(정규화 합계)",
+    "time_error_abs": "Time Error(절대)",
+    "time_error_norm": "Time Error(정규화)",
+    "loc_error_abs": "위치 Error(절대)",
+    "loc_error_norm": "위치 Error(정규화)",
+    "type_error": "Type Error",
+}
 
 app = FastAPI(title="Submission Debugger", version="0.1.0")
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
@@ -537,6 +551,20 @@ def parse_manual_tag_filters(
     legacy_norm = normalize_single_tag(legacy_tag)
     if legacy_norm and legacy_norm != "all" and not out:
         out.append({"mode": "and", "tag": legacy_norm})
+    return out
+
+
+def normalize_sort_dir(raw: str | None) -> str:
+    return "desc" if str(raw or "").strip().lower() == "desc" else "asc"
+
+
+def parse_submission_sort_specs(raw_keys: list[str] | None, raw_dirs: list[str] | None) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for key_raw, dir_raw in zip(raw_keys or [], raw_dirs or []):
+        key = str(key_raw or "").strip().lower()
+        if key not in SUBMISSION_SORT_KEY_LABELS:
+            continue
+        out.append({"key": key, "dir": normalize_sort_dir(dir_raw)})
     return out
 
 
@@ -1040,23 +1068,25 @@ def delete_personal_submission(submission_ref: str, request_user: str) -> bool:
     return deleted
 
 
-def get_top_contributors(limit: int = 3) -> list[dict[str, Any]]:
+def get_top_contributors(limit: int | None = 3) -> list[dict[str, Any]]:
+    query = """
+        SELECT
+            edited_by,
+            COUNT(*) AS edits,
+            COUNT(DISTINCT video_path) AS videos,
+            MAX(edited_at) AS last_at
+        FROM gt_history
+        WHERE edited_by IS NOT NULL AND TRIM(edited_by) != ''
+        GROUP BY edited_by
+        ORDER BY edits DESC, videos DESC, last_at DESC
+    """
+    params: tuple[Any, ...] = ()
+    if limit is not None:
+        query += "\nLIMIT ?"
+        params = (max(1, int(limit)),)
+
     with get_db() as conn:
-        cur = conn.execute(
-            """
-            SELECT
-                edited_by,
-                COUNT(*) AS edits,
-                COUNT(DISTINCT video_path) AS videos,
-                MAX(edited_at) AS last_at
-            FROM gt_history
-            WHERE edited_by IS NOT NULL AND TRIM(edited_by) != ''
-            GROUP BY edited_by
-            ORDER BY edits DESC, videos DESC, last_at DESC
-            LIMIT ?
-            """,
-            (max(1, int(limit)),),
-        )
+        cur = conn.execute(query, params)
         rows = cur.fetchall()
     return [
         {
@@ -1589,9 +1619,12 @@ def aggregate_submission_score(
 def aggregate_submission_error_metrics(
     sub_map: dict[str, dict[str, Any]],
     gt_map: dict[str, dict[str, Any]],
+    duration_map: dict[str, float | None] | None = None,
 ) -> dict[str, Any]:
     time_errors: list[float] = []
+    time_errors_norm: list[float] = []
     loc_errors: list[float] = []
+    loc_errors_norm: list[float] = []
     type_total = 0
     type_match = 0
 
@@ -1603,14 +1636,22 @@ def aggregate_submission_error_metrics(
         gt_t = parse_float(gt.get("accident_time"))
         pr_t = parse_float(pred.get("accident_time"))
         if gt_t is not None and pr_t is not None:
-            time_errors.append(abs(pr_t - gt_t))
+            dt = abs(pr_t - gt_t)
+            time_errors.append(dt)
+            if duration_map is not None:
+                dur = parse_float(duration_map.get(video_path))
+                if dur is not None and dur > 0:
+                    time_errors_norm.append(dt / dur)
 
         gt_x = parse_float(gt.get("center_x"))
         gt_y = parse_float(gt.get("center_y"))
         pr_x = parse_float(pred.get("center_x"))
         pr_y = parse_float(pred.get("center_y"))
         if gt_x is not None and gt_y is not None and pr_x is not None and pr_y is not None:
-            loc_errors.append(math.sqrt((pr_x - gt_x) ** 2 + (pr_y - gt_y) ** 2))
+            ds = math.sqrt((pr_x - gt_x) ** 2 + (pr_y - gt_y) ** 2)
+            loc_errors.append(ds)
+            # Normalize Euclidean distance in [0, 1]x[0, 1] by its maximum sqrt(2).
+            loc_errors_norm.append(ds / math.sqrt(2.0))
 
         gt_type = str(gt.get("type") or "").strip()
         pr_type = str(pred.get("type") or "").strip()
@@ -1620,15 +1661,21 @@ def aggregate_submission_error_metrics(
                 type_match += 1
 
     time_n = len(time_errors)
+    time_norm_n = len(time_errors_norm)
     loc_n = len(loc_errors)
+    loc_norm_n = len(loc_errors_norm)
     type_accuracy = (type_match / type_total) if type_total else None
     type_error_rate = (1.0 - type_accuracy) if type_accuracy is not None else None
 
     return {
         "time_avg": (sum(time_errors) / time_n) if time_n else None,
         "time_count": time_n,
+        "time_norm_avg": (sum(time_errors_norm) / time_norm_n) if time_norm_n else None,
+        "time_norm_count": time_norm_n,
         "loc_avg": (sum(loc_errors) / loc_n) if loc_n else None,
         "loc_count": loc_n,
+        "loc_norm_avg": (sum(loc_errors_norm) / loc_norm_n) if loc_norm_n else None,
+        "loc_norm_count": loc_norm_n,
         "type_accuracy": type_accuracy,
         "type_error_rate": type_error_rate,
         "type_match": type_match,
@@ -1943,6 +1990,23 @@ def index(
     )
 
 
+@app.get("/gt/contributors", response_class=HTMLResponse)
+def gt_contributors_page(request: Request) -> HTMLResponse:
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/login?next_url=/gt/contributors", status_code=303)
+
+    contributors = get_top_contributors(limit=None)
+    return templates.TemplateResponse(
+        "gt_contributors.html",
+        {
+            "request": request,
+            "user": user,
+            "contributors": contributors,
+        },
+    )
+
+
 @app.get("/submission", response_class=HTMLResponse)
 def submission_page(
     request: Request,
@@ -1957,6 +2021,8 @@ def submission_page(
     tag: str = "all",
     manual_tag_mode: list[str] = Query(default=[]),
     manual_tag_value: list[str] = Query(default=[]),
+    sort_key: list[str] = Query(default=[]),
+    sort_dir: list[str] = Query(default=[]),
 ) -> HTMLResponse:
     user = get_current_user(request)
     if user is None:
@@ -2014,13 +2080,18 @@ def submission_page(
     error_metrics = {
         "time_avg": None,
         "time_count": 0,
+        "time_norm_avg": None,
+        "time_norm_count": 0,
         "loc_avg": None,
         "loc_count": 0,
+        "loc_norm_avg": None,
+        "loc_norm_count": 0,
         "type_accuracy": None,
         "type_error_rate": None,
         "type_match": 0,
         "type_total": 0,
     }
+    duration_map = {str(m["path"]): parse_float(m.get("duration")) for m in metadata}
     if source_eff == "test":
         source_paths = {m["path"] for m in metadata}
         source_gt = {p: g for p, g in gt_map.items() if p in source_paths}
@@ -2028,7 +2099,7 @@ def submission_page(
         agg = aggregate_submission_score(sub_map, source_gt, sigma_t=2.0, sigma_s=0.15)
         estimated_score = agg.get("H")
         estimated_used = int(agg.get("used") or 0)
-        error_metrics = aggregate_submission_error_metrics(sub_map, source_gt)
+        error_metrics = aggregate_submission_error_metrics(sub_map, source_gt, duration_map=duration_map)
     else:
         source_gt_train = {
             m["path"]: {
@@ -2039,7 +2110,7 @@ def submission_page(
             }
             for m in metadata
         }
-        error_metrics = aggregate_submission_error_metrics(sub_map, source_gt_train)
+        error_metrics = aggregate_submission_error_metrics(sub_map, source_gt_train, duration_map=duration_map)
 
     quality_values = sorted({m["quality"] for m in metadata if m.get("quality")})
     weather_values = sorted({m["weather"] for m in metadata if m.get("weather")})
@@ -2047,6 +2118,7 @@ def submission_page(
     scene_layout_values = sorted({m["scene_layout"] for m in metadata if m.get("scene_layout")})
     q_norm = q.strip().lower()
     manual_tag_filters = parse_manual_tag_filters(tag, manual_tag_mode, manual_tag_value)
+    sort_specs = parse_submission_sort_specs(sort_key, sort_dir)
 
     dataset_note_map, dataset_tags_all = get_dataset_video_notes_index(source_eff)
     default_tags_all = sorted({tag for m in metadata for tag in build_default_metadata_tags(source_eff, m)})
@@ -2092,6 +2164,41 @@ def submission_page(
             comp_a = score_components(pred, gt, sigma_t=2.0, sigma_s=0.15)
             score_a = harmonic_mean(comp_a["T"], comp_a["S"], comp_a["C"])
 
+        time_error_abs = None
+        time_error_norm = None
+        loc_error_abs = None
+        loc_error_norm = None
+        type_error = None
+
+        gt_t = parse_float(gt.get("accident_time")) if gt else None
+        pr_t = parse_float(pred.get("accident_time")) if pred else None
+        if gt_t is not None and pr_t is not None:
+            time_error_abs = abs(pr_t - gt_t)
+            dur = parse_float(m.get("duration"))
+            if dur is not None and dur > 0:
+                time_error_norm = time_error_abs / dur
+
+        gt_x = parse_float(gt.get("center_x")) if gt else None
+        gt_y = parse_float(gt.get("center_y")) if gt else None
+        pr_x = parse_float(pred.get("center_x")) if pred else None
+        pr_y = parse_float(pred.get("center_y")) if pred else None
+        if gt_x is not None and gt_y is not None and pr_x is not None and pr_y is not None:
+            loc_error_abs = math.sqrt((pr_x - gt_x) ** 2 + (pr_y - gt_y) ** 2)
+            loc_error_norm = loc_error_abs / math.sqrt(2.0)
+
+        gt_type = str(gt.get("type") or "").strip() if gt else ""
+        pr_type = str(pred.get("type") or "").strip() if pred else ""
+        if gt_type and pr_type:
+            type_error = 0.0 if gt_type == pr_type else 1.0
+
+        error_abs_total = None
+        if time_error_abs is not None and loc_error_abs is not None and type_error is not None:
+            error_abs_total = time_error_abs + loc_error_abs + type_error
+
+        error_norm_total = None
+        if time_error_norm is not None and loc_error_norm is not None and type_error is not None:
+            error_norm_total = time_error_norm + loc_error_norm + type_error
+
         rows.append(
             {
                 "path": p,
@@ -2103,6 +2210,13 @@ def submission_page(
                 "pred": pred,
                 "gt": gt,
                 "score_a": score_a,
+                "time_error_abs": time_error_abs,
+                "time_error_norm": time_error_norm,
+                "loc_error_abs": loc_error_abs,
+                "loc_error_norm": loc_error_norm,
+                "type_error": type_error,
+                "error_abs_total": error_abs_total,
+                "error_norm_total": error_norm_total,
                 "my_model_comment": my_video_comment_map.get(p, ""),
                 "dataset_note_count": int(note_info.get("count") or 0),
                 "dataset_tags": combined_tags,
@@ -2111,6 +2225,43 @@ def submission_page(
                 "dataset_latest_at": str(note_info.get("latest_at") or ""),
             }
         )
+
+    def row_value_for_sort(row: dict[str, Any], key: str) -> Any:
+        if key == "duration":
+            return parse_float(row.get("duration"))
+        if key in {"quality", "weather", "day_time", "scene_layout"}:
+            return str(row.get(key) or "").strip().lower()
+        if key == "error_abs_total":
+            return parse_float(row.get("error_abs_total"))
+        if key == "error_norm_total":
+            return parse_float(row.get("error_norm_total"))
+        if key == "time_error_abs":
+            return parse_float(row.get("time_error_abs"))
+        if key == "time_error_norm":
+            return parse_float(row.get("time_error_norm"))
+        if key == "loc_error_abs":
+            return parse_float(row.get("loc_error_abs"))
+        if key == "loc_error_norm":
+            return parse_float(row.get("loc_error_norm"))
+        if key == "type_error":
+            return parse_float(row.get("type_error"))
+        return None
+
+    def apply_single_sort(input_rows: list[dict[str, Any]], key: str, direction: str) -> list[dict[str, Any]]:
+        present: list[dict[str, Any]] = []
+        missing: list[dict[str, Any]] = []
+        for r in input_rows:
+            v = row_value_for_sort(r, key)
+            if v is None or (isinstance(v, str) and not v):
+                missing.append(r)
+            else:
+                present.append(r)
+        present.sort(key=lambda r: row_value_for_sort(r, key), reverse=(direction == "desc"))
+        return present + missing
+
+    if sort_specs:
+        for spec in reversed(sort_specs):
+            rows = apply_single_sort(rows, spec["key"], spec["dir"])
 
     return templates.TemplateResponse(
         "submission.html",
@@ -2126,6 +2277,8 @@ def submission_page(
             "scene_layout_values": scene_layout_values,
             "manual_tag_values": dataset_tags_all,
             "manual_tag_filters": manual_tag_filters,
+            "sort_specs": sort_specs,
+            "sort_key_labels": SUBMISSION_SORT_KEY_LABELS,
             "dataset_tag_labels": DATASET_TAG_LABELS,
             "q": q,
             "quality": quality,
