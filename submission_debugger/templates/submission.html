@@ -213,7 +213,10 @@
         <a href="/" class="small">← 메인으로</a>
         <h3 style="margin:6px 0 0 0;">비디오 목록</h3>
       </div>
-      <span class="small mono">user={{ user }} / submission={{ submission }}</span>
+      <div class="row" style="justify-content:flex-end;">
+        <a class="link-btn" href="/submission/analysis?submission={{ submission|urlencode }}&source={{ source }}">Error 심층 분석</a>
+        <span class="small mono">user={{ user }} / submission={{ submission }}</span>
+      </div>
     </div>
     {% if source == 'train' %}
     <div class="small" style="margin-top:8px; color:#6d28d9;">
