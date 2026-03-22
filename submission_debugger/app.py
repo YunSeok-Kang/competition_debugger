@@ -1683,14 +1683,196 @@ def aggregate_submission_error_metrics(
     }
 
 
+
+ANALYSIS_GROUP_FIELDS = [
+    ("quality", "Quality"),
+    ("weather", "Weather"),
+    ("day_time", "Day Time"),
+    ("scene_layout", "Scene"),
+    ("gt_type", "GT Type"),
+]
+
+
+def build_source_gt_map(source: str, metadata: list[dict[str, Any]], gt_map: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    if source == "test":
+        valid_paths = {str(m["path"]) for m in metadata}
+        return {p: g for p, g in gt_map.items() if p in valid_paths}
+
+    return {
+        str(m["path"]): {
+            "accident_time": m.get("gt_time"),
+            "center_x": m.get("gt_cx"),
+            "center_y": m.get("gt_cy"),
+            "type": m.get("gt_type"),
+        }
+        for m in metadata
+    }
+
+
+def build_submission_analysis_items(
+    source: str,
+    metadata: list[dict[str, Any]],
+    source_gt_map: dict[str, dict[str, Any]],
+    dataset_note_map: dict[str, dict[str, Any]],
+    q: str,
+    quality: str,
+    weather: str,
+    day_time: str,
+    scene_layout: str,
+    only_labeled: bool,
+    manual_tag_filters: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    q_norm = str(q or "").strip().lower()
+    items: list[dict[str, Any]] = []
+
+    for meta in metadata:
+        path = str(meta["path"])
+        if q_norm and q_norm not in path.lower():
+            continue
+        if quality != "all" and str(meta.get("quality") or "") != quality:
+            continue
+        if weather != "all" and str(meta.get("weather") or "") != weather:
+            continue
+        if day_time != "all" and str(meta.get("day_time") or "") != day_time:
+            continue
+        if scene_layout != "all" and str(meta.get("scene_layout") or "") != scene_layout:
+            continue
+
+        gt = source_gt_map.get(path)
+        if only_labeled and not is_complete_gt(gt):
+            continue
+
+        note_info = dataset_note_map.get(path, {"tags": []})
+        note_tags = list(note_info.get("tags") or [])
+        if not match_manual_tag_filters(note_tags, manual_tag_filters):
+            continue
+
+        items.append(
+            {
+                "path": path,
+                "meta": meta,
+                "gt": gt,
+                "note_tags": note_tags,
+            }
+        )
+
+    return items
+
+
+def build_analysis_filter_label(
+    q: str,
+    quality: str,
+    weather: str,
+    day_time: str,
+    scene_layout: str,
+    only_labeled: bool,
+    manual_tag_filters: list[dict[str, str]],
+) -> str:
+    parts: list[str] = []
+    if str(q or "").strip():
+        parts.append(f"search={str(q).strip()}")
+    if quality != "all":
+        parts.append(f"quality={quality}")
+    if weather != "all":
+        parts.append(f"weather={weather}")
+    if day_time != "all":
+        parts.append(f"day_time={day_time}")
+    if scene_layout != "all":
+        parts.append(f"scene={scene_layout}")
+    if only_labeled:
+        parts.append("only labeled")
+    if manual_tag_filters:
+        tag_desc = ", ".join(
+            f"{str(item.get('mode') or 'and').upper()} {DATASET_TAG_LABELS.get(str(item.get('tag') or ''), str(item.get('tag') or ''))}"
+            for item in manual_tag_filters
+            if str(item.get("tag") or "").strip()
+        )
+        if tag_desc:
+            parts.append(f"manual tags: {tag_desc}")
+    return " / ".join(parts) if parts else "필터 없음"
+
+
+def summarize_submission_subset_metrics(
+    sub_map: dict[str, dict[str, Any]],
+    source_gt_map: dict[str, dict[str, Any]],
+    duration_map: dict[str, float | None],
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    subset_paths = [str(item["path"]) for item in items]
+    gt_subset = {p: source_gt_map[p] for p in subset_paths if p in source_gt_map}
+    sub_subset = {p: sub_map[p] for p in subset_paths if p in sub_map}
+    duration_subset = {p: duration_map.get(p) for p in subset_paths if p in duration_map}
+    metrics = aggregate_submission_error_metrics(sub_subset, gt_subset, duration_map=duration_subset)
+    total_error = None
+    time_term = metrics.get("time_avg")
+    loc_term = metrics.get("loc_avg")
+    acc = metrics.get("type_accuracy")
+    if time_term is not None and loc_term is not None and acc is not None:
+        total_error = float(time_term) + float(loc_term) + (1.0 - float(acc))
+
+    predicted_count = sum(1 for p in subset_paths if p in sub_map)
+    complete_gt_count = sum(1 for item in items if is_complete_gt(item.get("gt")))
+    has_metrics = not (
+        int(metrics.get("time_count") or 0) == 0
+        and int(metrics.get("loc_count") or 0) == 0
+        and int(metrics.get("type_total") or 0) == 0
+    )
+    return {
+        "videos": len(subset_paths),
+        "predicted_videos": predicted_count,
+        "complete_gt_videos": complete_gt_count,
+        "has_metrics": has_metrics,
+        "total_error": total_error,
+        "time_avg": metrics.get("time_avg"),
+        "time_count": int(metrics.get("time_count") or 0),
+        "time_norm_avg": metrics.get("time_norm_avg"),
+        "time_norm_count": int(metrics.get("time_norm_count") or 0),
+        "loc_avg": metrics.get("loc_avg"),
+        "loc_count": int(metrics.get("loc_count") or 0),
+        "loc_norm_avg": metrics.get("loc_norm_avg"),
+        "loc_norm_count": int(metrics.get("loc_norm_count") or 0),
+        "type_accuracy": metrics.get("type_accuracy"),
+        "type_error_rate": metrics.get("type_error_rate"),
+        "type_match": int(metrics.get("type_match") or 0),
+        "type_total": int(metrics.get("type_total") or 0),
+    }
+
+
+def build_group_breakdown_rows(
+    items: list[dict[str, Any]],
+    sub_map: dict[str, dict[str, Any]],
+    source_gt_map: dict[str, dict[str, Any]],
+    duration_map: dict[str, float | None],
+    field: str,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if field == "gt_type":
+            value = str((item.get("gt") or {}).get("type") or "").strip()
+            if not value:
+                continue
+        else:
+            value = str(item["meta"].get(field) or "").strip() or "-"
+        grouped.setdefault(value, []).append(item)
+
+    def sort_key(v: str) -> tuple[int, str]:
+        return (1 if v == "-" else 0, v.lower())
+
+    rows: list[dict[str, Any]] = []
+    for value in sorted(grouped, key=sort_key):
+        summary = summarize_submission_subset_metrics(sub_map, source_gt_map, duration_map, grouped[value])
+        rows.append({"group_value": value, **summary})
+    return rows
+
+
 def read_submission_map_internal(submission_name: str) -> dict[str, dict[str, Any]]:
     kind, owner, _ = parse_submission_ref(submission_name)
     request_user = owner if (kind == "personal" and owner) else DEFAULT_ADMIN_USER
     return read_submission_map(submission_name, request_user=request_user)
 
 
-def get_submission_error_leaderboard(limit: int = 3) -> dict[str, list[dict[str, Any]]]:
-    limit_eff = max(1, int(limit))
+def get_submission_error_leaderboard(limit: int | None = 3) -> dict[str, list[dict[str, Any]]]:
+    limit_eff = None if limit is None else max(1, int(limit))
     entries = list_all_uploaded_csv_entries()
 
     train_meta = load_metadata("train")
@@ -1767,9 +1949,8 @@ def get_submission_error_leaderboard(limit: int = 3) -> dict[str, list[dict[str,
                 float(x.get("total_error") or 999999.0),
             )
         )
-        leaderboard[source] = [
-            {**r, "rank": i + 1} for i, r in enumerate(rows[:limit_eff])
-        ]
+        ranked_rows = [{**r, "rank": i + 1} for i, r in enumerate(rows)]
+        leaderboard[source] = ranked_rows if limit_eff is None else ranked_rows[:limit_eff]
 
     return leaderboard
 
@@ -2003,6 +2184,29 @@ def gt_contributors_page(request: Request) -> HTMLResponse:
             "request": request,
             "user": user,
             "contributors": contributors,
+        },
+    )
+
+
+@app.get("/submission/errors", response_class=HTMLResponse)
+def submission_errors_page(request: Request) -> HTMLResponse:
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/login?next_url=/submission/errors", status_code=303)
+
+    leaderboard = get_submission_error_leaderboard(limit=None)
+    allowed_submissions = set(get_allowed_submissions(user))
+    for source in ("test", "train"):
+        for item in leaderboard[source]:
+            submission_ref = str(item.get("submission") or "").strip()
+            item["can_open"] = submission_ref in allowed_submissions
+
+    return templates.TemplateResponse(
+        "submission_errors.html",
+        {
+            "request": request,
+            "user": user,
+            "submission_error_leaderboard": leaderboard,
         },
     )
 
@@ -2295,6 +2499,194 @@ def submission_page(
             "estimated_used": estimated_used,
             "expected_complete_count": expected_complete_count,
             "error_metrics": error_metrics,
+        },
+    )
+
+
+
+@app.get("/submission/analysis", response_class=HTMLResponse)
+def submission_analysis_page(
+    request: Request,
+    submission: str,
+    source: str = "test",
+    q: str = "",
+    quality: str = "all",
+    weather: str = "all",
+    day_time: str = "all",
+    scene_layout: str = "all",
+    only_labeled: bool = False,
+    tag: str = "all",
+    manual_tag_mode: list[str] = Query(default=[]),
+    manual_tag_value: list[str] = Query(default=[]),
+    compare_submission: list[str] = Query(default=[]),
+    tab: str = "overview",
+) -> HTMLResponse:
+    user = get_current_user(request)
+    if user is None:
+        target = f"/submission/analysis?submission={quote(submission, safe='')}"
+        return RedirectResponse(url=f"/login?next_url={quote(target, safe='/?=&')}", status_code=303)
+
+    personal_entries = list_personal_submission_entries(user)
+    personal_submissions = [x["submission"] for x in personal_entries]
+    if submission not in personal_submissions:
+        raise HTTPException(status_code=403, detail="Submission access denied")
+
+    entry_map = {x["submission"]: x for x in personal_entries}
+    source_eff = normalize_submission_kind(entry_map.get(submission, {}).get("kind"))
+    set_user_preferences(user, submission, source_eff)
+
+    metadata = load_metadata(source_eff)
+    gt_map = get_gt_map()
+    source_gt_map = build_source_gt_map(source_eff, metadata, gt_map)
+    duration_map = {str(m["path"]): parse_float(m.get("duration")) for m in metadata}
+    dataset_note_map, dataset_tags_all = get_dataset_video_notes_index(source_eff)
+    manual_tag_filters = parse_manual_tag_filters(tag, manual_tag_mode, manual_tag_value)
+    filtered_items = build_submission_analysis_items(
+        source=source_eff,
+        metadata=metadata,
+        source_gt_map=source_gt_map,
+        dataset_note_map=dataset_note_map,
+        q=q,
+        quality=quality,
+        weather=weather,
+        day_time=day_time,
+        scene_layout=scene_layout,
+        only_labeled=only_labeled,
+        manual_tag_filters=manual_tag_filters,
+    )
+
+    quality_values = sorted({str(m.get("quality") or "") for m in metadata if m.get("quality")})
+    weather_values = sorted({str(m.get("weather") or "") for m in metadata if m.get("weather")})
+    day_time_values = sorted({str(m.get("day_time") or "") for m in metadata if m.get("day_time")})
+    scene_layout_values = sorted({str(m.get("scene_layout") or "") for m in metadata if m.get("scene_layout")})
+
+    current_sub_map = read_submission_map(submission, request_user=user)
+    current_summary = summarize_submission_subset_metrics(current_sub_map, source_gt_map, duration_map, filtered_items)
+    current_group_rows = [
+        {
+            "key": key,
+            "label": label,
+            "rows": build_group_breakdown_rows(filtered_items, current_sub_map, source_gt_map, duration_map, key),
+        }
+        for key, label in ANALYSIS_GROUP_FIELDS
+    ]
+
+    selected_group_label = build_analysis_filter_label(
+        q=q,
+        quality=quality,
+        weather=weather,
+        day_time=day_time,
+        scene_layout=scene_layout,
+        only_labeled=only_labeled,
+        manual_tag_filters=manual_tag_filters,
+    )
+
+    compare_entries = [
+        e for e in list_all_uploaded_csv_entries()
+        if normalize_submission_kind(str(e.get("kind") or "")) == source_eff
+    ]
+    compare_entry_map = {str(e.get("submission") or ""): e for e in compare_entries}
+    compare_options: list[dict[str, Any]] = []
+    for e in compare_entries:
+        ref = str(e.get("submission") or "")
+        if not ref:
+            continue
+        owner = str(e.get("owner") or "")
+        filename = str(e.get("filename") or ref)
+        compare_options.append(
+            {
+                "submission": ref,
+                "filename": filename,
+                "owner": owner,
+                "label": f"{filename} ({owner})",
+                "is_primary": ref == submission,
+            }
+        )
+
+    selected_compare_refs: list[str] = []
+    for ref in compare_submission:
+        ref_norm = str(ref or "").strip()
+        if not ref_norm or ref_norm == submission or ref_norm in selected_compare_refs:
+            continue
+        entry = compare_entry_map.get(ref_norm)
+        if entry is None:
+            continue
+        selected_compare_refs.append(ref_norm)
+
+    compare_rows: list[dict[str, Any]] = []
+    compare_sections: list[dict[str, Any]] = []
+    all_compare_refs = [submission] + selected_compare_refs
+    compare_sub_maps: dict[str, dict[str, dict[str, Any]]] = {submission: current_sub_map}
+    for ref in selected_compare_refs:
+        try:
+            compare_sub_maps[ref] = read_submission_map_internal(ref)
+        except Exception:
+            continue
+
+    for ref in list(compare_sub_maps.keys()):
+        entry = compare_entry_map.get(ref, {})
+        filename = str(entry.get("filename") or entry_map.get(ref, {}).get("filename") or ref)
+        owner = str(entry.get("owner") or user)
+        summary = summarize_submission_subset_metrics(compare_sub_maps[ref], source_gt_map, duration_map, filtered_items)
+        compare_rows.append(
+            {
+                "submission": ref,
+                "filename": filename,
+                "owner": owner,
+                "is_primary": ref == submission,
+                **summary,
+            }
+        )
+
+    for key, label in ANALYSIS_GROUP_FIELDS:
+        section_rows: list[dict[str, Any]] = []
+        for ref in list(compare_sub_maps.keys()):
+            entry = compare_entry_map.get(ref, {})
+            filename = str(entry.get("filename") or entry_map.get(ref, {}).get("filename") or ref)
+            owner = str(entry.get("owner") or user)
+            breakdown = build_group_breakdown_rows(filtered_items, compare_sub_maps[ref], source_gt_map, duration_map, key)
+            for row in breakdown:
+                section_rows.append(
+                    {
+                        "submission": ref,
+                        "filename": filename,
+                        "owner": owner,
+                        "is_primary": ref == submission,
+                        **row,
+                    }
+                )
+        compare_sections.append({"key": key, "label": label, "rows": section_rows})
+
+    return templates.TemplateResponse(
+        "submission_analysis.html",
+        {
+            "request": request,
+            "user": user,
+            "submission": submission,
+            "source": source_eff,
+            "tab": tab if tab in {"overview", "compare"} else "overview",
+            "q": q,
+            "quality": quality,
+            "weather": weather,
+            "day_time": day_time,
+            "scene_layout": scene_layout,
+            "only_labeled": only_labeled,
+            "tag": tag,
+            "manual_tag_filters": manual_tag_filters,
+            "manual_tag_values": dataset_tags_all,
+            "dataset_tag_labels": DATASET_TAG_LABELS,
+            "quality_values": quality_values,
+            "weather_values": weather_values,
+            "day_time_values": day_time_values,
+            "scene_layout_values": scene_layout_values,
+            "selected_group_label": selected_group_label,
+            "filtered_count": len(filtered_items),
+            "current_summary": current_summary,
+            "current_group_rows": current_group_rows,
+            "compare_options": compare_options,
+            "selected_compare_refs": selected_compare_refs,
+            "compare_rows": compare_rows,
+            "compare_sections": compare_sections,
         },
     )
 

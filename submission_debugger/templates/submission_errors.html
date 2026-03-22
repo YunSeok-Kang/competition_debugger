@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>전체 Submission Error 목록</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --bg2: #ece3d4;
+      --card: rgba(255, 253, 249, 0.95);
+      --text: #1f2a2e;
+      --muted: #5a6670;
+      --line: #d9cfbf;
+      --accent: #0f766e;
+      --accent2: #115e59;
+      --soft: #faf6ef;
+      --disabled: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1100px 420px at 0% -12%, #fff5dd 0%, transparent 70%),
+        radial-gradient(900px 360px at 100% -8%, #e8f7f3 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(31, 42, 46, 0.08);
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .small { color: var(--muted); font-size: 13px; }
+    .section-title {
+      margin: 18px 0 8px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #334155;
+    }
+    .leader-list {
+      display: grid;
+      gap: 8px;
+    }
+    .leader-item {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px 12px;
+    }
+    .rank {
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      background: #f7f2e8;
+      border: 1px solid var(--line);
+    }
+    .leader-main {
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+    }
+    .leader-file strong {
+      display: block;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.35;
+    }
+    .leader-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .leader-metrics {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+    }
+    .metric-kv {
+      min-width: 0;
+      padding-left: 8px;
+      border-left: 1px solid #e8dfd1;
+    }
+    .metric-kv .label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.2;
+    }
+    .metric-kv .value {
+      display: block;
+      margin-top: 2px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.25;
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #334155;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .btn.primary {
+      background: linear-gradient(180deg, var(--accent), var(--accent2));
+      border: none;
+      color: #fff;
+    }
+    .btn.disabled {
+      color: var(--disabled);
+      background: var(--soft);
+      pointer-events: none;
+    }
+    .empty {
+      margin-top: 10px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px dashed var(--line);
+      color: var(--muted);
+      background: #fffaf2;
+    }
+    @media (max-width: 860px) {
+      .wrap { padding: 12px; }
+      .leader-item { grid-template-columns: 1fr; }
+      .actions { justify-content: flex-start; }
+      .leader-metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <div>
+          <h2 style="margin:0;">전체 Submission Error 목록</h2>
+          <div class="small">총 Error = Time + 위치 + Type Error 기준 오름차순 정렬</div>
+        </div>
+        <div class="row" style="justify-content:flex-end;">
+          <span class="small">user: <strong>{{ user }}</strong></span>
+          <a class="btn primary" href="/">대시보드로 돌아가기</a>
+        </div>
+      </div>
+
+      {% for source in ['test', 'train'] %}
+      <div class="section-title">{{ source|upper }}</div>
+      {% if submission_error_leaderboard[source] %}
+      <div class="leader-list">
+        {% for item in submission_error_leaderboard[source] %}
+        <div class="leader-item">
+          <span class="rank">{{ item.rank }}</span>
+          <div class="leader-main">
+            <div class="leader-file">
+              <strong>{{ item.filename }}</strong>
+              <div class="leader-meta">owner: {{ item.owner }} | submission: {{ item.submission }}</div>
+            </div>
+            <div class="leader-metrics">
+              <div class="metric-kv">
+                <span class="label">Total Error</span>
+                <span class="value">{% if item.has_metrics %}{{ '%.5f'|format(item.total_error) }}{% else %}-{% endif %}</span>
+              </div>
+              <div class="metric-kv">
+                <span class="label">Time Error</span>
+                <span class="value">{% if item.time_avg is not none %}{{ '%.3f'|format(item.time_avg) }}s{% else %}-{% endif %}</span>
+              </div>
+              <div class="metric-kv">
+                <span class="label">위치 Error</span>
+                <span class="value">{% if item.loc_avg is not none %}{{ '%.5f'|format(item.loc_avg) }}{% else %}-{% endif %}</span>
+              </div>
+              <div class="metric-kv">
+                <span class="label">Type 정확도</span>
+                <span class="value">{% if item.type_accuracy is not none %}{{ '%.1f'|format(item.type_accuracy * 100) }}%{% else %}-{% endif %} ({{ item.type_match }}/{{ item.type_total }})</span>
+              </div>
+            </div>
+          </div>
+          <div class="actions">
+            {% if item.can_open %}
+            <a class="btn primary" href="/submission?submission={{ item.submission|urlencode }}&source={{ source }}">열기</a>
+            {% else %}
+            <span class="btn disabled">권한 없음</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty">표시 가능한 {{ source }} submission이 없습니다.</div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>

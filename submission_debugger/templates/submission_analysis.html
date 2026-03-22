@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Submission Error Analysis</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --bg2: #ece3d4;
+      --ink: #1f2a2e;
+      --line: #d9cfbf;
+      --card: rgba(255, 253, 249, 0.94);
+      --accent: #0f766e;
+      --accent2: #115e59;
+      --muted: #5a6670;
+      --soft: #faf6ef;
+      --primary-soft: #e8f7f3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Noto Sans KR", sans-serif;
+      line-height: 1.45;
+      color: var(--ink);
+      background:
+        radial-gradient(1100px 420px at 0% -12%, #fff5dd 0%, transparent 70%),
+        radial-gradient(900px 360px at 100% -8%, #e8f7f3 0%, transparent 70%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1380px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(31, 42, 46, 0.08);
+    }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .row > * { min-width: 0; }
+    .small { color: var(--muted); font-size: 12px; }
+    .grid { display: grid; gap: 12px; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .metric .label { display: block; font-size: 11px; color: var(--muted); }
+    .metric .value { display: block; margin-top: 4px; font-size: 18px; font-weight: 700; color: #334155; }
+    .metric .sub { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+    input, select, button {
+      font: inherit;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 7px 9px;
+      background: #fff;
+    }
+    button, .link-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      line-height: 1.25;
+      cursor: pointer;
+      text-decoration: none;
+      background: linear-gradient(180deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      padding: 8px 12px;
+    }
+    .ghost {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 2px 8px rgba(31, 42, 46, 0.06);
+    }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 4px 9px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .tabbar { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .tab-btn.active { background: linear-gradient(180deg, var(--accent), var(--accent2)); color: #fff; }
+    .panel { display: none; margin-top: 12px; }
+    .panel.active { display: block; }
+    .section-title { margin: 0 0 8px 0; font-size: 16px; }
+    .subsection { margin-top: 14px; }
+    .toolbar-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .toolbar-grid .full { grid-column: 1 / -1; }
+    .tag-filter-builder { display: grid; gap: 6px; }
+    .tag-filter-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .tag-filter-row select { min-width: 140px; flex: 1 1 200px; }
+    .table-wrap { overflow: auto; margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 7px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    th { background: var(--soft); position: sticky; top: 0; z-index: 1; }
+    .emphasis-row { background: var(--primary-soft); }
+    .multi-select { min-height: 120px; width: 100%; }
+    .empty {
+      border: 1px dashed #c7bfb3;
+      border-radius: 12px;
+      padding: 14px;
+      background: #fffaf2;
+      margin-top: 10px;
+    }
+    @media (max-width: 900px) {
+      .wrap { padding: 12px; }
+      .toolbar-grid { grid-template-columns: 1fr; }
+      .tag-filter-row select, .tag-filter-row button, .toolbar-grid input, .toolbar-grid select, .toolbar-grid button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div>
+        <a href="/submission?submission={{ submission|urlencode }}&source={{ source }}" class="small">← submission 목록으로</a>
+        <h2 style="margin:6px 0 0 0;">Error 심층 분석</h2>
+      </div>
+      <div class="row" style="justify-content:flex-end;">
+        <span class="pill">source: {{ source|upper }}</span>
+        <span class="small">user={{ user }}</span>
+      </div>
+    </div>
+    <div class="small" style="margin-top:8px;">이 페이지는 현재 보고 있는 submission을 기준으로 분석합니다. 아래에서 비교할 submission을 고른 뒤 `분석 갱신`을 누르면, `선택한 submission 비교` 탭에 비교 결과가 반영됩니다.</div>
+
+    <div class="card" style="margin-top:10px; background:#fff;">
+      <div class="row" style="justify-content: space-between; align-items:flex-start;">
+        <div>
+          <strong>사용 순서</strong>
+          <div class="small" style="margin-top:4px;">1. 분석 범위와 비교할 submission을 선택합니다.</div>
+          <div class="small">2. `선택 내용으로 분석 갱신`을 누릅니다.</div>
+          <div class="small">3. 현재 submission 결과는 `현재 submission 분석`, 비교 결과는 `선택한 submission 비교` 탭에서 확인합니다.</div>
+        </div>
+      </div>
+    </div>
+
+    <form method="get" action="/submission/analysis">
+      <input type="hidden" name="submission" value="{{ submission }}" />
+      <input type="hidden" name="source" value="{{ source }}" />
+      <div class="toolbar-grid">
+        <label class="small">Search
+          <input name="q" value="{{ q }}" placeholder="video path" />
+        </label>
+        <label class="small">Quality
+          <select name="quality">
+            <option value="all" {% if quality == 'all' %}selected{% endif %}>all</option>
+            {% for v in quality_values %}
+            <option value="{{ v }}" {% if quality == v %}selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="small">Weather
+          <select name="weather">
+            <option value="all" {% if weather == 'all' %}selected{% endif %}>all</option>
+            {% for v in weather_values %}
+            <option value="{{ v }}" {% if weather == v %}selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="small">Day Time
+          <select name="day_time">
+            <option value="all" {% if day_time == 'all' %}selected{% endif %}>all</option>
+            {% for v in day_time_values %}
+            <option value="{{ v }}" {% if day_time == v %}selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="small">Scene
+          <select name="scene_layout">
+            <option value="all" {% if scene_layout == 'all' %}selected{% endif %}>all</option>
+            {% for v in scene_layout_values %}
+            <option value="{{ v }}" {% if scene_layout == v %}selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="small">라벨 완성본만
+          <select name="only_labeled">
+            <option value="false" {% if not only_labeled %}selected{% endif %}>all</option>
+            <option value="true" {% if only_labeled %}selected{% endif %}>only labeled</option>
+          </select>
+        </label>
+        <label class="small full">함께 비교할 submission 선택
+          <select class="multi-select" name="compare_submission" multiple>
+            {% for item in compare_options %}
+            <option value="{{ item.submission }}" {% if item.submission in selected_compare_refs %}selected{% endif %} {% if item.is_primary %}disabled{% endif %}>{{ item.label }}{% if item.is_primary %} [현재 기준]{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <div class="card" style="margin-top:10px; background:#fff;">
+        <div class="row" style="justify-content: space-between;">
+          <strong>수동 태그 기반 특정 그룹</strong>
+          <button id="add-manual-tag-filter" type="button" class="ghost">조건 추가</button>
+        </div>
+        <div class="small" style="margin-top:4px;">여기서 만든 그룹 조건은 아래 `현재 submission 분석`과 `선택한 submission 비교`에 동일하게 적용됩니다.</div>
+        <div id="manual-tag-filter-builder" class="tag-filter-builder" style="margin-top:8px;">
+          {% if manual_tag_filters %}
+            {% for item in manual_tag_filters %}
+            <div class="tag-filter-row">
+              <select name="manual_tag_mode">
+                <option value="and" {% if item.mode == 'and' %}selected{% endif %}>AND</option>
+                <option value="or" {% if item.mode == 'or' %}selected{% endif %}>OR</option>
+                <option value="not" {% if item.mode == 'not' %}selected{% endif %}>NOT</option>
+              </select>
+              <select name="manual_tag_value">
+                <option value="">태그 선택</option>
+                {% for tv in manual_tag_values %}
+                <option value="{{ tv }}" {% if item.tag == tv %}selected{% endif %}>{{ dataset_tag_labels.get(tv, tv) }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="ghost remove-manual-tag-filter">삭제</button>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="tag-filter-row">
+              <select name="manual_tag_mode">
+                <option value="and" selected>AND</option>
+                <option value="or">OR</option>
+                <option value="not">NOT</option>
+              </select>
+              <select name="manual_tag_value">
+                <option value="">태그 선택</option>
+                {% for tv in manual_tag_values %}
+                <option value="{{ tv }}">{{ dataset_tag_labels.get(tv, tv) }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="ghost remove-manual-tag-filter">삭제</button>
+            </div>
+          {% endif %}
+        </div>
+        {% if not manual_tag_values %}
+        <div class="small" style="margin-top:6px;">아직 생성된 수동 태그가 없습니다.</div>
+        {% endif %}
+      </div>
+
+      <div class="row" style="margin-top:10px; justify-content: space-between;">
+        <div class="small">현재 분석 범위: <strong>{{ selected_group_label }}</strong> / 대상 비디오 {{ filtered_count }}개</div>
+        <div class="row" style="justify-content:flex-end;">
+          <button type="submit">선택 내용으로 분석 갱신</button>
+        </div>
+      </div>
+    </form>
+
+    <div class="tabbar">
+      <button type="button" class="ghost tab-btn {% if tab != 'compare' %}active{% endif %}" data-tab-target="overview">현재 submission 분석</button>
+      <button type="button" class="ghost tab-btn {% if tab == 'compare' %}active{% endif %}" data-tab-target="compare">선택한 submission 비교</button>
+    </div>
+
+    <div id="panel-overview" class="panel {% if tab != 'compare' %}active{% endif %}">
+      <div class="summary-grid">
+        <div class="metric"><span class="label">현재 그룹 비디오 수</span><span class="value">{{ current_summary.videos }}</span><span class="sub">예측 존재 {{ current_summary.predicted_videos }} / 완성 GT {{ current_summary.complete_gt_videos }}</span></div>
+        <div class="metric"><span class="label">Total Error</span><span class="value">{% if current_summary.total_error is not none %}{{ '%.5f'|format(current_summary.total_error) }}{% else %}-{% endif %}</span><span class="sub">Time + 위치 + Type Error</span></div>
+        <div class="metric"><span class="label">평균 Time Error</span><span class="value">{% if current_summary.time_avg is not none %}{{ '%.3f'|format(current_summary.time_avg) }}s{% else %}-{% endif %}</span><span class="sub">계산 {{ current_summary.time_count }}개</span></div>
+        <div class="metric"><span class="label">평균 위치 Error</span><span class="value">{% if current_summary.loc_avg is not none %}{{ '%.5f'|format(current_summary.loc_avg) }}{% else %}-{% endif %}</span><span class="sub">계산 {{ current_summary.loc_count }}개</span></div>
+        <div class="metric"><span class="label">Type 정확도</span><span class="value">{% if current_summary.type_accuracy is not none %}{{ '%.1f'|format(current_summary.type_accuracy * 100) }}%{% else %}-{% endif %}</span><span class="sub">{{ current_summary.type_match }} / {{ current_summary.type_total }}</span></div>
+      </div>
+
+      {% for section in current_group_rows %}
+      <div class="subsection">
+        <h3 class="section-title">{{ section.label }}별 현재 submission Error</h3>
+        {% if section.rows %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ section.label }}</th>
+                <th>비디오 수</th>
+                <th>예측 존재</th>
+                <th>Time Error</th>
+                <th>위치 Error</th>
+                <th>Type 정확도</th>
+                <th>Total Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in section.rows %}
+              <tr>
+                <td><strong>{{ row.group_value }}</strong></td>
+                <td>{{ row.videos }}</td>
+                <td>{{ row.predicted_videos }}</td>
+                <td>{% if row.time_avg is not none %}{{ '%.3f'|format(row.time_avg) }}s{% else %}-{% endif %}</td>
+                <td>{% if row.loc_avg is not none %}{{ '%.5f'|format(row.loc_avg) }}{% else %}-{% endif %}</td>
+                <td>{% if row.type_accuracy is not none %}{{ '%.1f'|format(row.type_accuracy * 100) }}%{% else %}-{% endif %}</td>
+                <td>{% if row.total_error is not none %}{{ '%.5f'|format(row.total_error) }}{% else %}-{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty">현재 조건에서 표시할 {{ section.label }} 그룹이 없습니다.</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="panel-compare" class="panel {% if tab == 'compare' %}active{% endif %}">
+      <div class="subsection">
+        <h3 class="section-title">선택한 submission 전체 비교</h3>
+        {% if compare_rows %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>submission</th>
+                <th>owner</th>
+                <th>비디오 수</th>
+                <th>예측 존재</th>
+                <th>Time Error</th>
+                <th>위치 Error</th>
+                <th>Type 정확도</th>
+                <th>Total Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in compare_rows %}
+              <tr {% if row.is_primary %}class="emphasis-row"{% endif %}>
+                <td><strong>{{ row.filename }}</strong><div class="small">{{ row.submission }}</div></td>
+                <td>{{ row.owner }}{% if row.is_primary %}<div class="small">현재 기준</div>{% endif %}</td>
+                <td>{{ row.videos }}</td>
+                <td>{{ row.predicted_videos }}</td>
+                <td>{% if row.time_avg is not none %}{{ '%.3f'|format(row.time_avg) }}s{% else %}-{% endif %}</td>
+                <td>{% if row.loc_avg is not none %}{{ '%.5f'|format(row.loc_avg) }}{% else %}-{% endif %}</td>
+                <td>{% if row.type_accuracy is not none %}{{ '%.1f'|format(row.type_accuracy * 100) }}%{% else %}-{% endif %}</td>
+                <td>{% if row.total_error is not none %}{{ '%.5f'|format(row.total_error) }}{% else %}-{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty">비교할 submission을 고른 뒤 `선택 내용으로 분석 갱신`을 누르면 여기 표시됩니다.</div>
+        {% endif %}
+      </div>
+
+      {% for section in compare_sections %}
+      <div class="subsection">
+        <h3 class="section-title">{{ section.label }}별 선택 submission 비교</h3>
+        {% if section.rows %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ section.label }}</th>
+                <th>submission</th>
+                <th>owner</th>
+                <th>비디오 수</th>
+                <th>예측 존재</th>
+                <th>Time Error</th>
+                <th>위치 Error</th>
+                <th>Type 정확도</th>
+                <th>Total Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in section.rows %}
+              <tr {% if row.is_primary %}class="emphasis-row"{% endif %}>
+                <td><strong>{{ row.group_value }}</strong></td>
+                <td>{{ row.filename }}</td>
+                <td>{{ row.owner }}</td>
+                <td>{{ row.videos }}</td>
+                <td>{{ row.predicted_videos }}</td>
+                <td>{% if row.time_avg is not none %}{{ '%.3f'|format(row.time_avg) }}s{% else %}-{% endif %}</td>
+                <td>{% if row.loc_avg is not none %}{{ '%.5f'|format(row.loc_avg) }}{% else %}-{% endif %}</td>
+                <td>{% if row.type_accuracy is not none %}{{ '%.1f'|format(row.type_accuracy * 100) }}%{% else %}-{% endif %}</td>
+                <td>{% if row.total_error is not none %}{{ '%.5f'|format(row.total_error) }}{% else %}-{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty">현재 조건에서 표시할 {{ section.label }} 비교 결과가 없습니다.</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+  const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+  const panels = {
+    overview: document.getElementById('panel-overview'),
+    compare: document.getElementById('panel-compare'),
+  };
+
+  function activateTab(key) {
+    tabButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.tabTarget === key));
+    Object.entries(panels).forEach(([name, panel]) => {
+      if (!panel) return;
+      panel.classList.toggle('active', name === key);
+    });
+  }
+
+  tabButtons.forEach((btn) => {
+    btn.addEventListener('click', () => activateTab(btn.dataset.tabTarget));
+  });
+
+  const manualTagBuilder = document.getElementById('manual-tag-filter-builder');
+  const addManualTagButton = document.getElementById('add-manual-tag-filter');
+  const manualTagOptionsHtml = `
+    <option value="">태그 선택</option>
+    {% for tv in manual_tag_values %}
+      <option value="{{ tv }}">{{ dataset_tag_labels.get(tv, tv) }}</option>
+    {% endfor %}
+  `;
+
+  function bindManualTagRow(row) {
+    const removeButton = row.querySelector('.remove-manual-tag-filter');
+    if (!removeButton) return;
+    removeButton.addEventListener('click', () => {
+      const rows = manualTagBuilder.querySelectorAll('.tag-filter-row');
+      if (rows.length <= 1) {
+        row.querySelector('select[name="manual_tag_mode"]').value = 'and';
+        row.querySelector('select[name="manual_tag_value"]').value = '';
+        return;
+      }
+      row.remove();
+    });
+  }
+
+  Array.from(document.querySelectorAll('.tag-filter-row')).forEach(bindManualTagRow);
+  if (addManualTagButton && manualTagBuilder) {
+    addManualTagButton.addEventListener('click', () => {
+      const row = document.createElement('div');
+      row.className = 'tag-filter-row';
+      row.innerHTML = `
+        <select name="manual_tag_mode">
+          <option value="and" selected>AND</option>
+          <option value="or">OR</option>
+          <option value="not">NOT</option>
+        </select>
+        <select name="manual_tag_value">${manualTagOptionsHtml}</select>
+        <button type="button" class="ghost remove-manual-tag-filter">삭제</button>
+      `;
+      manualTagBuilder.appendChild(row);
+      bindManualTagRow(row);
+    });
+  }
+</script>
+</body>
+</html>
