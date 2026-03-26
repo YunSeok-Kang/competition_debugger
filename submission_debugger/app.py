@@ -1659,7 +1659,7 @@ def aggregate_submission_error_metrics(
             type_total += 1
             if gt_type == pr_type:
                 type_match += 1
-
+    
     time_n = len(time_errors)
     time_norm_n = len(time_errors_norm)
     loc_n = len(loc_errors)
@@ -1681,8 +1681,52 @@ def aggregate_submission_error_metrics(
         "type_match": type_match,
         "type_total": type_total,
     }
+def build_type_confusion_matrix(
+    sub_map: dict[str, dict[str, Any]],
+    gt_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    labels = list(VALID_TYPES)
+    matrix: dict[str, dict[str, int]] = {
+        gt_label: {pred_label: 0 for pred_label in labels}
+        for gt_label in labels
+    }
+    row_totals: dict[str, int] = {label: 0 for label in labels}
+    col_totals: dict[str, int] = {label: 0 for label in labels}
+    total = 0
 
+    for video_path, gt in gt_map.items():
+        pred = sub_map.get(video_path)
+        if pred is None:
+            continue
 
+        gt_type = str(gt.get("type") or "").strip()
+        pr_type = str(pred.get("type") or "").strip()
+
+        if gt_type not in labels or pr_type not in labels:
+            continue
+
+        matrix[gt_type][pr_type] += 1
+        row_totals[gt_type] += 1
+        col_totals[pr_type] += 1
+        total += 1
+
+    return {
+        "labels": labels,
+        "matrix": matrix,
+        "row_totals": row_totals,
+        "col_totals": col_totals,
+        "total": total,
+    }
+
+def build_type_confusion_for_items(
+    items: list[dict[str, Any]],
+    sub_map: dict[str, dict[str, Any]],
+    source_gt_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    subset_paths = [str(item["path"]) for item in items]
+    gt_subset = {p: source_gt_map[p] for p in subset_paths if p in source_gt_map}
+    sub_subset = {p: sub_map[p] for p in subset_paths if p in sub_map}
+    return build_type_confusion_matrix(sub_subset, gt_subset)
 
 ANALYSIS_GROUP_FIELDS = [
     ("quality", "Quality"),
@@ -2562,6 +2606,7 @@ def submission_analysis_page(
 
     current_sub_map = read_submission_map(submission, request_user=user)
     current_summary = summarize_submission_subset_metrics(current_sub_map, source_gt_map, duration_map, filtered_items)
+    current_type_confusion = build_type_confusion_for_items(filtered_items, current_sub_map, source_gt_map)
     current_group_rows = [
         {
             "key": key,
@@ -2683,6 +2728,7 @@ def submission_analysis_page(
             "filtered_count": len(filtered_items),
             "current_summary": current_summary,
             "current_group_rows": current_group_rows,
+            "current_type_confusion": current_type_confusion,
             "compare_options": compare_options,
             "selected_compare_refs": selected_compare_refs,
             "compare_rows": compare_rows,
